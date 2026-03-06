@@ -91,6 +91,7 @@ model = dict(
 dataset_type = 'CocoDataset'
 data_mode = 'topdown'
 data_root = 'data/coco/'
+test_root = 'data/test/'
 
 # pipelines
 train_pipeline = [
@@ -146,10 +147,27 @@ val_dataloader = dict(
         pipeline=val_pipeline,
     ))
 
-test_dataloader = val_dataloader
+test_dataloader = dict(
+    batch_size=32,
+    num_workers=2,
+    persistent_workers=True,
+    drop_last=False,
+    sampler=dict(type='DefaultSampler', shuffle=False, round_up=False),
+    dataset=dict(
+        type=dataset_type,
+        data_root=test_root,
+        data_mode=data_mode,
+        ann_file='annotations.json',
+        data_prefix=dict(img='images/'),
+        test_mode=True,
+        pipeline=val_pipeline,
+))
 
 # evaluators
 val_evaluator = dict(
     type='CocoMetric',
     ann_file=data_root + 'annotations/person_keypoints_val2017.json')
-test_evaluator = val_evaluator
+
+test_evaluator = dict(
+    type='CocoMetric',
+    ann_file=test_root + 'annotations.json')
