@@ -24,7 +24,7 @@ def auc_pck(pred, gt, scale, max_threshold=0.5, steps=100):
         score = pck(pred, gt, scale, threshold=t)
         scores.append(score)
 
-    return np.trapezoid(scores, thresholds) / max_threshold
+    return np.trapz(scores, thresholds) / max_threshold
 
 def oks(pred, gt, scale, sigmas, vis):
     d = np.linalg.norm(pred - gt, axis=-1)
@@ -105,51 +105,3 @@ def evaluate_pose(pred, gt, scale, vis, sigmas, joint_names, pck_thresholds=(0.1
     print(f"\nCOCO-style AP: {ap_scores.mean():.3f}")
 
     return results, ap_scores
-
-
-"""if __name__ == "__main__":
-    import os
-    import json
-    from utils import visualisation
-    from models.vitpose import ViTPose
-
-    DIR = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
-    model = ViTPose()
-
-    image_path = os.path.join(DIR, "data/test/images/image_1.png")
-    gt_path = os.path.join(DIR, "data/test/annotations.json")
-
-    with open(gt_path, "r") as f:
-        annotations = json.load(f)
-
-    result = model(image_path, "device")
-
-    body_idx = [0, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
-    pred = result[0][0]["keypoints"]
-    pred = pred[body_idx, :]
-
-    gt = np.array(annotations["annotations"][0]["keypoints"]).reshape(13, 3)[:, :2]
-
-    body_connections = [
-    [1,2],[1,3],[3,5],[2,4],[4,6],[1,7],[2,8],[7,8],[7,9],[9,11],[8,10],[10,12]
-    ]
-
-    visualisation.plot_skeleton(image_path, [pred, gt], body_connections)
-
-    bbox = annotations["annotations"][0]["bbox"]
-
-    scale_val = np.sqrt(bbox[2]**2 + bbox[3]**2)
-    scale = np.array([scale_val])
-
-    pred = pred[None, :, :]
-    gt   = gt[None, :, :]  
-
-    mask = np.array([1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1])
-    mask = np.array([mask])
-
-    sigmas = np.array([0.026,0.025,0.025,0.035,0.035,0.079,0.079,0.072,0.072,0.062,0.062,0.107,0.107,0.087,0.087,0.089,0.089])
-    sigmas = sigmas[body_idx]
-
-
-    joint_names = ["nose","left_shoulder","right_shoulder","left_elbow","right_elbow","left_wrist","right_wrist","left_hip","right_hip","left_knee","right_knee","left_ankle","right_ankle"]
-    evaluate_pose(pred, gt, scale, mask, sigmas, joint_names)"""
