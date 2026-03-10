@@ -1,7 +1,9 @@
-_base_ = ['../../../_base_/default_runtime.py']
+_base_ = ['../_base_/default_runtime.py']
+
+load_from = "models/vitpose/checkpoint.pth"
 
 # runtime
-train_cfg = dict(max_epochs=210, val_interval=10)
+train_cfg = dict(max_epochs=100, val_interval=10)
 
 # optimizer
 custom_imports = dict(
@@ -28,13 +30,13 @@ optim_wrapper = dict(
 # learning policy
 param_scheduler = [
     dict(
-        type='LinearLR', begin=0, end=500, start_factor=0.001,
+        type='LinearLR', begin=0, end=50, start_factor=0.001,
         by_epoch=False),  # warm-up
     dict(
         type='MultiStepLR',
         begin=0,
-        end=210,
-        milestones=[170, 200],
+        end=100,
+        milestones=[80, 100],
         gamma=0.1,
         by_epoch=True)
 ]
@@ -98,12 +100,11 @@ train_pipeline = [
     dict(type='LoadImage'),
     dict(type='GetBBoxCenterScale'),
     dict(type='RandomFlip', direction='horizontal'),
+    dict(type="RotateImage", rotation_prob=0.5, rotation_limits=[-180, 180]),
     dict(type='BlurLimbs', blur_prob=0.35),
-    dict(type="OccludeLimbs", occlusion_prob=0.2, max_size_ratio=0.07),
-    dict(type="Albumentations", transforms=[
-        dict(type="Rotate", limit=(-180, 180), p=0.5),
-        dict(type='RandomBrightnessContrast', brightness_limit=0.2, contrast_limit=0.2, p=0.6),
-        dict(type='Perspective', scale=(0.03, 0.1), p=0.4)
+    dict(type="OccludeLimbs", occlusion_prob=0.05, max_size_ratio=0.07),
+    dict(type="Albumentation", transforms=[
+        dict(type='RandomBrightnessContrast', brightness_limit=0.1, contrast_limit=0.1, p=0.5),
     ]),
     dict(type='RandomBBoxTransform'),
     dict(type='TopdownAffine', input_size=codec['input_size']),
@@ -166,7 +167,7 @@ test_dataloader = dict(
 # evaluators
 val_evaluator = dict(
     type='CocoMetric',
-    ann_file=data_root + 'annotations/person_keypoints_val2017.json')
+    ann_file=data_root + 'annotations/valid_set.json')
 
 test_evaluator = dict(
     type='CocoMetric',

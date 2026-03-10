@@ -1,7 +1,10 @@
 from mmpose.datasets.transforms import LoadImage, RandomBBoxTransform, GetBBoxCenterScale, Albumentation, RandomFlip
-from mmpose.datasets.transforms.gymnastics_transforms import BlurLimbs, OccludeLimbs
+from mmpose.datasets.transforms.gymnastics_transforms import BlurLimbs, OccludeLimbs, RotateImage
+import albumentations as A
 import mmcv
+import cv2
 import numpy as np
+from utils.visualisation import plot_skeleton
 
 """keypoints_list = [
     367,81,2, 374,73,2, 360,75,2, 386,78,2, 356,81,2,
@@ -83,6 +86,8 @@ visibility = keypoints_array[:, 2:3]        # (17, 1)
 keypoints_xy = keypoints_xy[np.newaxis, :, :][0]
 visibility = visibility[np.newaxis, :, :]
 
+# plot_skeleton('/home/blake-eldridge/Repos/mmpose/tests/data/coco/000000196141.jpg', [keypoints_xy])
+
 # Load the original image from the path
 results = dict(
     img_path='/home/blake-eldridge/Repos/mmpose/tests/data/coco/000000196141.jpg',
@@ -105,13 +110,14 @@ results = transform(results)
 transform = OccludeLimbs(occlusion_prob=0.4, max_size_ratio=0.1)
 results = transform(results)
 
+transform = RotateImage(rotation_prob=1, rotation_limits=[-180, 180])
+results = transform(results)
+
 transform = Albumentation(transforms=[
-    dict(type="Rotate", limit=(-180, 180), p=1),
     dict(type='RandomBrightnessContrast', brightness_limit=0.2, contrast_limit=0.2, p=1),
-    dict(type='Perspective', scale=(0.05, 0.15), p=1)
 ])
 results = transform(results)
 
-import matplotlib.pyplot as plt
-plt.imshow(results['img'][:, :, ::-1])
-plt.show()
+cv2.imwrite("aug_image.jpg", results["img"])
+
+plot_skeleton("aug_image.jpg", [results["keypoints"]])

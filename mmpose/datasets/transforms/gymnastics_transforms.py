@@ -3,6 +3,7 @@ from mmcv.transforms import BaseTransform
 from mmpose.registry import TRANSFORMS
 import numpy as np
 import cv2
+import albumentations as alb
 
 @TRANSFORMS.register_module()
 class BlurLimbs(BaseTransform):
@@ -141,4 +142,50 @@ class OccludeLimbs(BaseTransform):
             occluded_count += 1
 
         results["img"] = img
+        return results
+    
+@TRANSFORMS.register_module()
+class RotateImage(BaseTransform):
+    def __init__(self, rotation_prob=0.5, rotation_limits=[-15, 15]):
+        self.prob = rotation_prob
+        self.limit_min = rotation_limits[0]
+        self.limit_max = rotation_limits[1]
+
+    def transform(self, results):
+        keypoints = results["keypoints"]
+
+        # Handle visibility
+        if keypoints.shape[1] == 3:
+            keypoints_xy = keypoints[:, :2]
+            visibility = keypoints[:, 2:3]
+        else:
+            keypoints_xy = keypoints
+            visibility = None
+
+        # Keep track of points that are exactly at (0,0)
+        zero_mask = np.all(keypoints_xy == 0, axis=1)
+
+        # Convert keypoints to list of tuples for Albumentations
+        keypoints_list = [tuple(k) for k in keypoints_xy]
+
+        transform = alb.Compose(
+            [alb.Rotate(limit=[self.limit_min, self.limit_max], p=1.0)],
+            keypoint_params=alb.KeypointParams(format="xy", remove_invisible=False)
+        )
+
+        # Apply augmentation
+        aug = transform(image=results["img"], keypoints=keypoints_list)
+        results["img"] = aug["image"]
+
+        aug_kps = np.array(aug["keypoints"])
+
+        # Reset any originally zero points back to (0,0)
+        aug_kps[zero_mask] = 0
+
+        # Combine with visibility if it exists
+        if visibility is not None:
+            results["keypoints"] = np.hstack([aug_kps, visibility])
+        else:
+            results["keypoints"] = aug_kps
+
         return results
