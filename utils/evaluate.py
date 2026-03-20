@@ -31,9 +31,9 @@ def convert_to_json(raw_file):
     return output
 
 if __name__ == "__main__":
-    experiments = ["hrnet", "hrnet_coco", "hrnet_athlete", "vitpose"]
-    # experiments = ["hrnet_athlete"]
-    for experiment in experiments:
+    # experiments = ["hrnet", "hrnet_coco_freeze", "hrnet_athlete_freeze", "hrnet_athlete_aug", "vitpose", "vitpose_coco"]
+    experiments = ["hrnet_athlete_freeze"]
+    for experiment in experiments[::5]:
         raw_output_file = f"results/{experiment}/outputs.pkl"
         raw_output_path = os.path.join(DIR, raw_output_file)
 
@@ -67,6 +67,8 @@ if __name__ == "__main__":
 
             pred = np.array(pred).reshape(17, 3)[:, :2][body_idx]
             gt = np.array(gt).reshape(17, 3)[:, :2][body_idx]
+
+            # plot_skeleton(os.path.join(image_dir, image_file), [gt, pred], body_connections, body_idx)
 
             scale_val = np.sqrt(bbox[2]**2 + bbox[3]**2)
             scale = np.array([scale_val])

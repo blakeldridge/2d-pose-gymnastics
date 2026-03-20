@@ -189,6 +189,39 @@ def rotate_foreground(image, mask, keypoints, angle):
 
     return rotated_img, rotated_mask.astype(bool), rotated_kps
 
+# def rotate_foreground(image, mask, keypoints, angle):
+#     h, w = image.shape[:2]
+#     cx, cy = w / 2, h / 2
+
+#     M = cv2.getRotationMatrix2D((cx, cy), angle, 1.0)
+
+#     cos = abs(M[0,0])
+#     sin = abs(M[0,1])
+
+#     new_w = int((h * sin) + (w * cos))
+#     new_h = int((h * cos) + (w * sin))
+
+#     M[0,2] += (new_w / 2) - cx
+#     M[1,2] += (new_h / 2) - cy
+
+#     rotated_img = cv2.warpAffine(image, M, (new_w, new_h), flags=cv2.INTER_LINEAR)
+#     rotated_mask = cv2.warpAffine(mask.astype(np.uint8), M, (new_w, new_h), flags=cv2.INTER_NEAREST)
+
+#     rotated_kps = []
+#     for i in range(0, len(keypoints), 3):
+#         x, y, v = keypoints[i:i+3]
+
+#         if v == 0:
+#             rotated_kps.extend([0,0,0])
+#             continue
+
+#         pt = np.array([x, y, 1.0])
+#         px, py = M @ pt
+
+#         rotated_kps.extend([px, py, v])
+
+#     return rotated_img, rotated_mask.astype(bool), rotated_kps
+
 if __name__ == "__main__":
     #keypoints_list = [1137.6, 1708.8, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1224.0, 1545.6, 2, 1070.3999999999999, 1545.6, 2, 1291.2, 1756.8, 2, 1099.2, 1756.8, 2, 1315.2, 1963.1999999999998, 2, 1051.2, 1915.1999999999998, 2, 1296.0, 1152.0, 2, 1142.3999999999999, 1142.3999999999999, 2, 1329.6, 787.1999999999999, 2, 1243.2, 801.6, 2, 1401.6, 465.59999999999997, 2, 1344.0, 470.4, 2]
     #bbox = np.array([974.4, 321.6, 504.0, 1732.8])
