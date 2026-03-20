@@ -137,9 +137,9 @@ def composite_background(image, person_bbox, keypoints, background_image, placem
     placement_indices = np.argwhere(placement_mask > 0)
     y, x = placement_indices[np.random.choice(len(placement_indices))][:2]
     y = max(0, y - int(h/2))
-    x = max(0, x - int(x/2))
+    x = max(0, x - int(w/2))
 
-    bbox = [x, y, mask_bbox[2], mask_bbox[3]]
+    bbox = [x+mask_bbox[0], y+mask_bbox[1], mask_bbox[2], mask_bbox[3]]
 
     keypoints = []
     for i in range(0, len(rotated_kps), 3):
@@ -200,6 +200,11 @@ if __name__ == "__main__":
 
     annotation_path = os.path.join(DIR, "segmentation/annotations/annotations.json")
 
+    body_idx = [0, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
+    body_connections = [
+        [1,2],[1,3],[3,5],[2,4],[4,6],[1,7],[2,8],[7,8],[7,9],[9,11],[8,10],[10,12]
+    ]
+
     # LOAD BACKGROUND DETAILS
     with open(annotation_path, "r") as f:
         annotations = json.load(f)[0]
@@ -215,16 +220,13 @@ if __name__ == "__main__":
     test_image_kps = [1137.6, 1708.8, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1224.0, 1545.6, 2, 1070.3999999999999, 1545.6, 2, 1291.2, 1756.8, 2, 1099.2, 1756.8, 2, 1315.2, 1963.1999999999998, 2, 1051.2, 1915.1999999999998, 2, 1296.0, 1152.0, 2, 1142.3999999999999, 1142.3999999999999, 2, 1329.6, 787.1999999999999, 2, 1243.2, 801.6, 2, 1401.6, 465.59999999999997, 2, 1344.0, 470.4, 2]
     test_image_bbox = np.array([974.4, 321.6, 504.0, 1732.8])
 
+    plot_skeleton(test_image_path, [np.array(test_image_kps).reshape(17,3)[:,:2][body_idx]], body_connections, [1,2], bbox=test_image_bbox)
+
     result, bbox, keypoints = composite_background(test_image, test_image_bbox, test_image_kps, background, placement_mask, foreground_mask, predictor, [min_height, max_height], [-180, 180], 0.1, 0.01)
     result_path = os.path.join(DIR, "segmentation/result.jpg")
     cv2.imwrite(result_path, result)
 
-    body_idx = [0, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
-    body_connections = [
-        [1,2],[1,3],[3,5],[2,4],[4,6],[1,7],[2,8],[7,8],[7,9],[9,11],[8,10],[10,12]
-    ]
-
     kps = np.array(keypoints).reshape(17, 3)[:,:2][body_idx]
 
     # Show Images
-    plot_skeleton(result_path, [kps], body_connections, [1, 2])
+    plot_skeleton(result_path, [kps], body_connections, [1, 2], bbox=bbox)
