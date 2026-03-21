@@ -53,8 +53,8 @@ def build_dataset(images_dir, annotations_path, background_data, results_dir):
 
             bg = background_data[random.randint(0, len(background_data)-1)]
             bg_image = cv2.imread(bg["image"])
-            bg_foreground_mask = cv2.imread(bg["foreground_mask"])
-            bg_placement_mask = cv2.imread(bg["placement_mask"])
+            bg_foreground_mask = cv2.imread(os.path.join(DIR, bg["foreground_mask"]))
+            bg_placement_mask = cv2.imread(os.path.join(DIR, bg["placement_mask"]))
             bg_min_height = bg["min_height"]
             bg_max_height = bg["max_height"]
 
@@ -87,22 +87,22 @@ if __name__ == "__main__":
     with open(BACKGROUND_ANN, "r") as f:
         background_data = json.load(f)
 
-    test_image_dir = os.path.join(DIR, "data/segmentation_images/images/")
-    test_annotation_path = os.path.join(DIR, "data/segmentation_images/annotations.json")
+    test_image_dir = os.path.join(DIR, "data/coco/train2017/")
+    test_annotation_path = os.path.join(DIR, "data/coco/annotations/person_keypoints_train2017.json")
 
     start_time = time.time()
 
-    build_dataset(test_image_dir, test_annotation_path, background_data, os.path.join(DIR, "data/segmentation_images/results/"))
+    build_dataset(test_image_dir, test_annotation_path, background_data, os.path.join(DIR, "data/segmentation_images/"))
 
     end_time = time.time()
 
     print(f"Total time taken : {(end_time - start_time):.2f} secs")
 
-    with open(os.path.join(DIR, "data/segmentation_images/results/annotations.json"), "r") as f:
-        annotations = json.load(f)
+    # with open(os.path.join(DIR, "data/segmentation_images/annotations.json"), "r") as f:
+    #     annotations = json.load(f)
 
-    for i in range(len(annotations["images"])):
-        img_path = os.path.join(os.path.join(DIR, "data/segmentation_images/results/images/"), annotations["images"][i]["file_name"])
-        kps = np.array(annotations["annotations"][i]["keypoints"]).reshape(17, 3)[:,:2]
+    # for i in range(len(annotations["images"])):
+    #     img_path = os.path.join(os.path.join(DIR, "data/segmentation_images/images/"), annotations["images"][i]["file_name"])
+    #     kps = np.array(annotations["annotations"][i]["keypoints"]).reshape(17, 3)[:,:2]
 
-        plot_skeleton(img_path, [kps])
+    #     plot_skeleton(img_path, [kps])
