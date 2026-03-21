@@ -12,7 +12,7 @@ DIR = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
 BACKGROUNDS = os.path.join(DIR, "data/backgrounds/")
 BACKGROUND_ANN = os.path.join(DIR, "segmentation/annotations/annotations.json")
 
-CONVERSION_NUM = 50
+CONVERSION_NUM = 10
 
 def pick_background():
     background_paths = [os.path.join(BACKGROUNDS, f) for f in os.listdir(BACKGROUNDS)]
@@ -30,6 +30,8 @@ def build_dataset(images_dir, annotations_path, background_data, results_dir):
     result_annotations = os.path.join(results_dir, "annotations.json")
 
     os.makedirs(result_images, exist_ok=True)
+
+    body_idx = [0, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
 
     with open(annotations_path, "r") as f:
         annotations = json.load(f)
@@ -64,7 +66,7 @@ def build_dataset(images_dir, annotations_path, background_data, results_dir):
                 kps = np.array(keypoints).reshape(17, 3)
 
                 # require all keypoints visible
-                if not np.all(kps[:, 2] ==2):
+                if not np.all(kps[:, 2][body_idx] == 2):
                     continue
 
                 # # size filter
