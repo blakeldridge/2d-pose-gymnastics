@@ -37,13 +37,19 @@ def build_dataset(images_dir, annotations_path, background_data, results_dir):
             filename = annotations["images"][i]["file_name"]
             path = os.path.join(images_dir, filename)
             person_image = cv2.imread(path)
+            if person_image is None:
+                raise ValueError(f"Failed to load image: {path}")
             image_id = annotations["images"][i]["id"]
             print(f"Converting {path}")
 
             for j in range(len(annotations["annotations"])):
-                if annotations["annotations"][j]["id"] == image_id:
+                if annotations["annotations"][j]["image_id"] == image_id:
                     keypoints = annotations["annotations"][j]["keypoints"]
                     bbox = annotations["annotations"][j]["bbox"]
+                    break
+
+            if bbox is None or keypoints is None:
+                continue
 
             bg = background_data[random.randint(0, len(background_data)-1)]
             bg_image = cv2.imread(bg["image"])

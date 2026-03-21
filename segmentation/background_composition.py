@@ -10,8 +10,13 @@ DIR = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
 
 def mask_to_bbox(mask):
     ys, xs = np.where(mask)
+
+    if len(xs) == 0 or len(ys) == 0:
+        raise ValueError("Empty mask inputted")
+    
     x1, x2 = xs.min(), xs.max()
     y1, y2 = ys.min(), ys.max()
+    
     return [x1, y1, x2-x1, y2-y1]
 
 def transform_foreground(image, mask, keypoints, angle, scale=1.0, max_shear=0.05, max_persp=0.0005):
@@ -97,6 +102,7 @@ def composite_background(image, person_bbox, keypoints, background_image, placem
     predictor.set_image(image)
     x, y, w, h = person_bbox
     sam_box = np.array([x, y, x+w, y+h])
+    
     masks, scores, _ = predictor.predict(box=sam_box, multimask_output=True)
     mask = masks[np.argmax(scores)]
     masked_image = image.copy()
@@ -104,6 +110,11 @@ def composite_background(image, person_bbox, keypoints, background_image, placem
 
     person = image * mask[..., None]
     ys, xs = np.where(mask)
+
+
+    if len(xs) == 0 or len(ys) == 0:
+        raise ValueError("Empty mask from SAM — no foreground detected")
+    
     my1, my2 = ys.min(), ys.max()
     mx1, mx2 = xs.min(), xs.max()
 
@@ -138,6 +149,10 @@ def composite_background(image, person_bbox, keypoints, background_image, placem
     y, x = placement_indices[np.random.choice(len(placement_indices))][:2]
     y = max(0, y - int(h/2))
     x = max(0, x - int(w/2))
+    if y + mask_bbox[3] > h:
+        y = y - ((y + mask_bbox[3]) - h)
+    if x + mask_bbox[2] > w:
+        x = x - ((x + mask_bbox[2]) - w)
 
     bbox = [x+mask_bbox[0], y+mask_bbox[1], mask_bbox[2], mask_bbox[3]]
 
