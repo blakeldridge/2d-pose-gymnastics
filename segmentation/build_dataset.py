@@ -12,6 +12,8 @@ DIR = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
 BACKGROUNDS = os.path.join(DIR, "data/backgrounds/")
 BACKGROUND_ANN = os.path.join(DIR, "segmentation/annotations/annotations.json")
 
+CONVERSION_NUM = 5
+
 def pick_background():
     background_paths = [os.path.join(BACKGROUNDS, f) for f in os.listdir(BACKGROUNDS)]
 
@@ -32,7 +34,9 @@ def build_dataset(images_dir, annotations_path, background_data, results_dir):
     with open(annotations_path, "r") as f:
         annotations = json.load(f)
 
-    for i in range(len(annotations["images"]))[0:5]:
+    i = 0
+    conversion_count = 0
+    while i < len(annotations["images"]) and conversion_count < CONVERSION_NUM:
         try:
             filename = annotations["images"][i]["file_name"]
             path = os.path.join(images_dir, filename)
@@ -42,14 +46,45 @@ def build_dataset(images_dir, annotations_path, background_data, results_dir):
             image_id = annotations["images"][i]["id"]
             print(f"Converting {path}")
 
-            for j in range(len(annotations["annotations"])):
-                if annotations["annotations"][j]["image_id"] == image_id:
-                    keypoints = annotations["annotations"][j]["keypoints"]
-                    bbox = annotations["annotations"][j]["bbox"]
-                    break
+            image_annotations = [
+                ann for ann in annotations["annotations"]
+                if ann["image_id"] == image_id
+            ]
 
-            if bbox is None or keypoints is None:
+            if len(image_annotations) == 0:
+                i += 1
                 continue
+
+            valid_candidates = []
+
+            for ann in image_annotations:
+                keypoints = ann["keypoints"]
+                bbox = ann["bbox"]
+
+                kps = np.array(keypoints).reshape(17, 3)
+
+                # require all keypoints visible
+                if not np.all(kps[:, 2] == 2):
+                    continue
+
+                # size filter
+                if bbox[2] < 300 or bbox[3] < 300:
+                    continue
+
+                area = bbox[2] * bbox[3]
+                valid_candidates.append((area, ann))
+
+            # nothing valid in this image
+            if len(valid_candidates) == 0:
+                i += 1
+                continue
+
+            # pick largest person
+            _, best_ann = max(valid_candidates, key=lambda x: x[0])
+
+            ann_idx = annotations["annotations"].index(best_ann)
+            keypoints = best_ann["keypoints"]
+            bbox = best_ann["bbox"]
 
             bg = background_data[random.randint(0, len(background_data)-1)]
             bg_image = cv2.imread(bg["image"])
@@ -61,19 +96,22 @@ def build_dataset(images_dir, annotations_path, background_data, results_dir):
             start_time = time.time()
             new_image, new_kps, new_bbox = composite_background(person_image, bbox, keypoints, bg_image, bg_placement_mask, bg_foreground_mask, predictor, [bg_min_height, bg_max_height], [-180, 180], 0.1, 0.01)
 
-            annotations["annotations"][i]["keypoints"] = list(map(float, new_kps))
-            annotations["annotations"][i]["bbox"] = list(map(float, new_bbox))
+            annotations["annotations"][ann_idx]["keypoints"] = list(map(float, new_kps))
+            annotations["annotations"][ann_idx]["bbox"] = list(map(float, new_bbox))
 
             cv2.imwrite(os.path.join(result_images, filename), new_image)
             end_time = time.time()
 
             print(f"Converted {path}")
             print(f"Time taken : {(end_time - start_time):.2f} secs\n")
+            conversion_count += 1
             images_converted += 1
         except Exception as e:
             print(f"ERROR : {e}")
             print(f"Failed to convert Image\n")
             failed_conversions += 1
+        
+        i += 1
 
     with open(result_annotations, "w") as f:
         json.dump(annotations, f)
