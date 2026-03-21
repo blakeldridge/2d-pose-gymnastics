@@ -12,7 +12,7 @@ DIR = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
 BACKGROUNDS = os.path.join(DIR, "data/backgrounds/")
 BACKGROUND_ANN = os.path.join(DIR, "segmentation/annotations/annotations.json")
 
-CONVERSION_NUM = 5
+CONVERSION_NUM = 50
 
 def pick_background():
     background_paths = [os.path.join(BACKGROUNDS, f) for f in os.listdir(BACKGROUNDS)]
@@ -37,6 +37,7 @@ def build_dataset(images_dir, annotations_path, background_data, results_dir):
     i = 0
     conversion_count = 0
     while i < len(annotations["images"]) and conversion_count < CONVERSION_NUM:
+        # print(i, conversion_count)
         try:
             filename = annotations["images"][i]["file_name"]
             path = os.path.join(images_dir, filename)
@@ -44,7 +45,6 @@ def build_dataset(images_dir, annotations_path, background_data, results_dir):
             if person_image is None:
                 raise ValueError(f"Failed to load image: {path}")
             image_id = annotations["images"][i]["id"]
-            print(f"Converting {path}")
 
             image_annotations = [
                 ann for ann in annotations["annotations"]
@@ -64,11 +64,11 @@ def build_dataset(images_dir, annotations_path, background_data, results_dir):
                 kps = np.array(keypoints).reshape(17, 3)
 
                 # require all keypoints visible
-                if not np.all(kps[:, 2] == 2):
+                if not np.all(kps[:, 2] ==2):
                     continue
 
-                # size filter
-                if bbox[2] < 300 or bbox[3] < 300:
+                # # size filter
+                if bbox[2] * bbox[3] < 10000:
                     continue
 
                 area = bbox[2] * bbox[3]
@@ -79,6 +79,8 @@ def build_dataset(images_dir, annotations_path, background_data, results_dir):
                 i += 1
                 continue
 
+            print(i, f"Converting {path}")
+
             # pick largest person
             _, best_ann = max(valid_candidates, key=lambda x: x[0])
 
@@ -88,8 +90,8 @@ def build_dataset(images_dir, annotations_path, background_data, results_dir):
 
             bg = background_data[random.randint(0, len(background_data)-1)]
             bg_image = cv2.imread(bg["image"])
-            bg_foreground_mask = cv2.imread(os.path.join(DIR, bg["foreground_mask"]))
-            bg_placement_mask = cv2.imread(os.path.join(DIR, bg["placement_mask"]))
+            bg_foreground_mask = cv2.imread(os.path.join(DIR, bg["foreground_mask"]), cv2.IMREAD_GRAYSCALE)
+            bg_placement_mask = cv2.imread(os.path.join(DIR, bg["placement_mask"]), cv2.IMREAD_GRAYSCALE)
             bg_min_height = bg["min_height"]
             bg_max_height = bg["max_height"]
 
@@ -135,12 +137,3 @@ if __name__ == "__main__":
     end_time = time.time()
 
     print(f"Total time taken : {(end_time - start_time):.2f} secs")
-
-    # with open(os.path.join(DIR, "data/segmentation_images/annotations.json"), "r") as f:
-    #     annotations = json.load(f)
-
-    # for i in range(len(annotations["images"])):
-    #     img_path = os.path.join(os.path.join(DIR, "data/segmentation_images/images/"), annotations["images"][i]["file_name"])
-    #     kps = np.array(annotations["annotations"][i]["keypoints"]).reshape(17, 3)[:,:2]
-
-    #     plot_skeleton(img_path, [kps])

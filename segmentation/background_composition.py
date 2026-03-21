@@ -7,6 +7,9 @@ from segment_anything import SamPredictor, sam_model_registry
 from utils.visualisation import plot_skeleton
 
 DIR = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
+JPEG_PROB = 0.7
+ROTATE_PROB = 0.5
+PERSP_PROB = 0.3
 
 def mask_to_bbox(mask):
     ys, xs = np.where(mask)
@@ -18,6 +21,74 @@ def mask_to_bbox(mask):
     y1, y2 = ys.min(), ys.max()
     
     return [x1, y1, x2-x1, y2-y1]
+
+def estimate_blur(img):
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    return cv2.Laplacian(gray, cv2.CV_64F).var()
+
+def estimate_noise(img):
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY).astype(np.float32)
+    blur = cv2.GaussianBlur(gray, (3,3), 0)
+    noise = gray - blur
+    return np.std(noise)
+
+def apply_jpeg(img, quality):
+    encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), quality]
+    _, enc = cv2.imencode('.jpg', img, encode_param)
+    return cv2.imdecode(enc, 1)
+
+def match_contrast(fg_crop, mask, bg_roi, ring_size=15, clamp_scale=(0.7, 1.3), clamp_shift=(-30, 30), fallback_jitter=True):
+    mask = mask.astype(np.uint8)
+    
+    # Compute the ring around mask
+    kernel = np.ones((ring_size, ring_size), np.uint8)
+    dilated = cv2.dilate(mask, kernel)
+    ring = (dilated - mask).astype(bool)
+    
+    # Convert both to LAB for luminance-only adjustment
+    fg_lab = cv2.cvtColor(fg_crop, cv2.COLOR_BGR2LAB).astype(np.float32)
+    bg_lab = cv2.cvtColor(bg_roi, cv2.COLOR_BGR2LAB).astype(np.float32)
+    
+    L_fg = fg_lab[..., 0]
+    L_bg = bg_lab[..., 0]
+    
+    # Check if ring has enough pixels, else fallback
+    if np.sum(ring) < 10:
+        if fallback_jitter:
+            alpha = np.random.uniform(0.9, 1.1)
+            beta = np.random.uniform(-10, 10)
+            fg_crop = np.clip(fg_crop * alpha + beta, 0, 255).astype(np.uint8)
+        return fg_crop
+    
+    # Compute statistics
+    fg_mean, fg_std = L_fg[mask.astype(bool)].mean(), L_fg[mask.astype(bool)].std()
+    bg_mean, bg_std = L_bg[ring].mean(), L_bg[ring].std()
+    
+    # Compute scale and shift, with clamping
+    scale = np.clip(bg_std / (fg_std + 1e-6), clamp_scale[0], clamp_scale[1])
+    shift = np.clip(bg_mean - fg_mean, clamp_shift[0], clamp_shift[1])
+    
+    # Apply adjustment
+    L_fg = (L_fg - fg_mean) * scale + fg_mean + shift
+    L_fg = np.clip(L_fg, 0, 255)
+    
+    fg_lab[..., 0] = L_fg
+    fg_adjusted = cv2.cvtColor(fg_lab.astype(np.uint8), cv2.COLOR_LAB2BGR)
+    
+    return fg_adjusted
+
+def feathered_blend(fg_crop, mask, bg_roi, feather_radius=15):
+    mask = mask.astype(np.float32)
+    mask_blurred = cv2.GaussianBlur(mask, (2*feather_radius+1, 2*feather_radius+1), 0)
+    mask_blurred = mask_blurred[..., None]  # (H,W,1)
+    
+    fg_crop = fg_crop.astype(np.float32)
+    bg_roi = bg_roi.astype(np.float32)
+    
+    blended = fg_crop * mask_blurred + bg_roi * (1 - mask_blurred)
+    blended = np.clip(blended, 0, 255).astype(np.uint8)
+    
+    return blended
 
 def transform_foreground(image, mask, keypoints, angle, scale=1.0, max_shear=0.05, max_persp=0.0005):
     h, w = image.shape[:2]
@@ -37,6 +108,8 @@ def transform_foreground(image, mask, keypoints, angle, scale=1.0, max_shear=0.0
             scaled_keypoints.extend([x * scale, y * scale, v])
 
         keypoints = scaled_keypoints
+
+        h, w = target_h, target_w
 
     cx, cy = w / 2, h / 2
     M_rot = cv2.getRotationMatrix2D((cx, cy), angle, 1.0)
@@ -111,7 +184,6 @@ def composite_background(image, person_bbox, keypoints, background_image, placem
     person = image * mask[..., None]
     ys, xs = np.where(mask)
 
-
     if len(xs) == 0 or len(ys) == 0:
         raise ValueError("Empty mask from SAM — no foreground detected")
     
@@ -128,9 +200,18 @@ def composite_background(image, person_bbox, keypoints, background_image, placem
             cropped_kps.extend([0,0,0])
             continue
         cropped_kps.extend([kx - mx1, ky - my1, v])
-        
-    angle = np.random.uniform(angle_limits[0], angle_limits[1])
+
+
+    if np.random.rand() < ROTATE_PROB:    
+        angle = np.random.uniform(angle_limits[0], angle_limits[1])
+    else:
+        angle = np.random.uniform(-15, 15)
     scale = np.random.uniform(size_limits[0], size_limits[1]) / foreground_crop.shape[0]
+
+    if np.random.rand() < PERSP_PROB:
+        max_shear = max_shear
+    else:
+        max_shear = 0
     foreground_crop, mask_crop, rotated_kps = transform_foreground(
         foreground_crop,
         mask_crop,
@@ -143,16 +224,25 @@ def composite_background(image, person_bbox, keypoints, background_image, placem
 
     mask_bbox = mask_to_bbox(mask_crop)
     h, w = foreground_crop.shape[:2]
+    H_bg, W_bg = background_image.shape[:2]
 
     # PLACE IN NEW BACKGROUND
-    placement_indices = np.argwhere(placement_mask > 0)
-    y, x = placement_indices[np.random.choice(len(placement_indices))][:2]
-    y = max(0, y - int(h/2))
-    x = max(0, x - int(w/2))
-    if y + mask_bbox[3] > h:
-        y = y - ((y + mask_bbox[3]) - h)
-    if x + mask_bbox[2] > w:
-        x = x - ((x + mask_bbox[2]) - w)
+    # placement_indices = np.argwhere(placement_mask > 0)
+    # y, x = placement_indices[np.random.choice(len(placement_indices))][:2]
+    ys, xs = np.where(placement_mask > 0)
+
+    valid = (
+        (ys - h//2 >= 0) &
+        (ys + h//2 < H_bg) &
+        (xs - w//2 >= 0) &
+        (xs + w//2 < W_bg)
+    )
+
+    ys = ys[valid]
+    xs = xs[valid]
+
+    idx = np.random.randint(len(xs))
+    y, x = ys[idx] - h//2, xs[idx] - w//2
 
     bbox = [x+mask_bbox[0], y+mask_bbox[1], mask_bbox[2], mask_bbox[3]]
 
@@ -165,9 +255,9 @@ def composite_background(image, person_bbox, keypoints, background_image, placem
 
         keypoints.extend([kx + x, ky + y, v])
     # Place foreground on background
-    foreground = np.where(foreground_mask > 0, background_image, 0)
+    # foreground = np.where(foreground_mask > 0, background_image, 0)
+    foreground = np.where(foreground_mask[..., None] > 0, background_image, 0)
 
-    H_bg, W_bg = background_image.shape[:2]
     h, w = foreground_crop.shape[:2]
 
     # Ensure placement stays inside bounds
@@ -181,6 +271,45 @@ def composite_background(image, person_bbox, keypoints, background_image, placem
     roi = background_image[y:y_end, x:x_end]
     fg_crop = foreground_crop[:h_valid, :w_valid]
     mask_valid = mask_crop[:h_valid, :w_valid]
+
+    # match blur of background
+    bg_blur = estimate_blur(roi)
+    fg_blur = estimate_blur(fg_crop)
+
+    if fg_blur > bg_blur:
+        k = int(np.clip((fg_blur / (bg_blur + 1e-6)), 1, 15))
+        if k % 2 == 0:
+            k += 1
+        fg_crop = cv2.GaussianBlur(fg_crop, (k, k), 0)
+
+    # match noise of background
+    bg_noise = estimate_noise(roi)
+    fg_noise = estimate_noise(fg_crop)
+
+    noise_to_add = max(0, bg_noise - fg_noise)
+
+    noise = np.random.normal(0, noise_to_add, fg_crop.shape).astype(np.float32)
+    fg_crop = np.clip(fg_crop.astype(np.float32) + noise, 0, 255).astype(np.uint8)
+
+    fg_crop = match_contrast(fg_crop, mask_valid, roi)
+
+    kernel = np.ones((3,3), np.uint8)
+    mask_valid = cv2.morphologyEx(mask_valid.astype(np.uint8), cv2.MORPH_CLOSE, kernel, iterations=1)
+    
+    roi = feathered_blend(fg_crop, mask_valid, roi, feather_radius=15)
+
+    mask = mask_valid.astype(np.uint8)
+
+    kernel = np.ones((7,7), np.uint8)
+
+    eroded = cv2.erode(mask, kernel)
+    edge_band = mask - eroded   # thin ring at boundary
+
+    blurred_fg = cv2.GaussianBlur(fg_crop, (11,11), 0)
+
+    edge_band_3 = edge_band[..., None]
+
+    roi = np.where(edge_band_3, blurred_fg, roi)
 
     # Apply mask
     roi[mask_valid.astype(bool)] = fg_crop[mask_valid.astype(bool)]
@@ -204,6 +333,10 @@ def composite_background(image, person_bbox, keypoints, background_image, placem
             v_keypoints.extend([kx, ky, 1])
         else:
             v_keypoints.extend([kx, ky, v])
+
+    if np.random.rand() < JPEG_PROB:
+        quality = np.random.randint(60, 95)
+        result = apply_jpeg(result, quality)
 
     return result, bbox, v_keypoints
 
