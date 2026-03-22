@@ -36,18 +36,23 @@ def build_dataset(images_dir, annotations_path, background_data, results_dir):
     with open(annotations_path, "r") as f:
         annotations = json.load(f)
 
-    dataset = {
-        "images": [],
-        "annotations": [],
-        "categories": annotations["categories"]
-    }
+    if os.path.exists(result_annotations):
+        with open(result_annotations, "r") as f:
+            dataset = json.load(f)
+
+        conversion_count = len(dataset["images"])
+    else:
+        dataset = {
+            "images": [],
+            "annotations": [],
+            "categories": annotations["categories"]
+        }
+        conversion_count = 0
 
     i = 0
-    conversion_count = 0
     while conversion_count < CONVERSION_NUM:
         if i >= len(annotations["images"]):
             i = 0 
-        # print(i, conversion_count)
         try:
             filename = annotations["images"][i]["file_name"]
             path = os.path.join(images_dir, filename)
