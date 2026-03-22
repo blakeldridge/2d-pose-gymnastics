@@ -12,7 +12,7 @@ DIR = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
 BACKGROUNDS = os.path.join(DIR, "data/backgrounds/")
 BACKGROUND_ANN = os.path.join(DIR, "segmentation/annotations/annotations.json")
 
-CONVERSION_NUM = 10
+CONVERSION_NUM = 20000
 
 def pick_background():
     background_paths = [os.path.join(BACKGROUNDS, f) for f in os.listdir(BACKGROUNDS)]
@@ -36,9 +36,17 @@ def build_dataset(images_dir, annotations_path, background_data, results_dir):
     with open(annotations_path, "r") as f:
         annotations = json.load(f)
 
+    dataset = {
+        "images": [],
+        "annotations": [],
+        "categories": annotations["categories"]
+    }
+
     i = 0
     conversion_count = 0
-    while i < len(annotations["images"]) and conversion_count < CONVERSION_NUM:
+    while conversion_count < CONVERSION_NUM:
+        if i >= len(annotations["images"]):
+            i = 0 
         # print(i, conversion_count)
         try:
             filename = annotations["images"][i]["file_name"]
@@ -84,7 +92,8 @@ def build_dataset(images_dir, annotations_path, background_data, results_dir):
             print(i, f"Converting {path}")
 
             # pick largest person
-            _, best_ann = max(valid_candidates, key=lambda x: x[0])
+            top_k = valid_candidates[:min(3, len(valid_candidates))]
+            _, best_ann = random.choice(top_k)
 
             ann_idx = annotations["annotations"].index(best_ann)
             keypoints = best_ann["keypoints"]
@@ -98,12 +107,30 @@ def build_dataset(images_dir, annotations_path, background_data, results_dir):
             bg_max_height = bg["max_height"]
 
             start_time = time.time()
-            new_image, new_kps, new_bbox = composite_background(person_image, bbox, keypoints, bg_image, bg_placement_mask, bg_foreground_mask, predictor, [bg_min_height, bg_max_height], [-180, 180], 0.1, 0.01)
+            new_image, new_bbox, new_kps = composite_background(person_image, bbox, keypoints, bg_image, bg_placement_mask, bg_foreground_mask, predictor, [bg_min_height, bg_max_height], [-180, 180], 0.1, 0.01)
 
-            annotations["annotations"][ann_idx]["keypoints"] = list(map(float, new_kps))
-            annotations["annotations"][ann_idx]["bbox"] = list(map(float, new_bbox))
+            fname = f"{conversion_count:06d}.jpg"
+            new_image_entry = {
+                "id": conversion_count,
+                "file_name": fname,
+                "width": new_image.shape[1],
+                "height": new_image.shape[0]
+            }
+            dataset["images"].append(new_image_entry)
 
-            cv2.imwrite(os.path.join(result_images, filename), new_image)
+            new_annotation_entry = {
+                "id": conversion_count,
+                "image_id": conversion_count,
+                "category_id": 1,
+                "keypoints": list(map(float, new_kps)),
+                "num_keypoints": int(np.sum(np.array(new_kps)[2::3] > 0)),
+                "bbox": list(map(float, new_bbox)),
+                "area": float(new_bbox[2] * new_bbox[3]),
+                "iscrowd": 0
+            }
+            dataset["annotations"].append(new_annotation_entry)
+
+            cv2.imwrite(os.path.join(result_images, fname), new_image)
             end_time = time.time()
 
             print(f"Converted {path}")
@@ -118,7 +145,7 @@ def build_dataset(images_dir, annotations_path, background_data, results_dir):
         i += 1
 
     with open(result_annotations, "w") as f:
-        json.dump(annotations, f)
+        json.dump(dataset, f, indent=4)
 
     print(f"Images Converted : {images_converted}")
     if failed_conversions > 0:
