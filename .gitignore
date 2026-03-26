@@ -108,7 +108,6 @@ venv.bak/
 # custom
 mmpose/.mim
 /models
-/data
 .vscode
 .idea
 *.pkl
@@ -138,3 +137,5 @@ segmentation/annotations/
 results/
 *.task
 mediapipe_test/**/*.json
+data/**/**/*.jpg
+data/**/**/*.json
