@@ -1,3 +1,6 @@
+# Program used to annotate keypoints of poses in images
+# used to create the test dataset
+
 import cv2
 import numpy as np
 import os
@@ -20,9 +23,6 @@ COCO_KEYPOINTS = [
     "left_ankle","right_ankle",
 ]
 
-# -----------------------------
-# Annotation UI
-# -----------------------------
 def annotate_image(img, keypoint_names, zoom=8, zoom_window=200):
 
     target_h = 800
@@ -142,7 +142,6 @@ def annotate_image(img, keypoint_names, zoom=8, zoom_window=200):
     cv2.setMouseCallback("image",mouse)
 
     while True:
-
         draw_ui()
         key = cv2.waitKey(10)
 
@@ -176,16 +175,11 @@ def annotate_image(img, keypoint_names, zoom=8, zoom_window=200):
             abs(x2-x1) / scale,
             abs(y2-y1) / scale
         ]
-        # bbox = [min(x1,x2),min(y1,y2),abs(x2-x1),abs(y2-y1)]
     else:
         bbox = None
 
     return keypoints,bbox
 
-
-# -----------------------------
-# COCO helpers
-# -----------------------------
 def to_coco_annotation(image_id,annotation_id,keypoints,bbox):
 
     kp_out=[]
@@ -209,17 +203,10 @@ def to_coco_annotation(image_id,annotation_id,keypoints,bbox):
         "num_keypoints":visible
     }
 
-
-# -----------------------------
-# Load or create COCO file
-# -----------------------------
 if os.path.exists(ANN_PATH):
-
     with open(ANN_PATH) as f:
         coco=json.load(f)
-
 else:
-
     coco={
         "images":[],
         "annotations":[],
@@ -230,7 +217,6 @@ else:
             "skeleton":[]
         }]
     }
-
 
 annotated_names=set(i["file_name"] for i in coco["images"])
 
@@ -243,10 +229,6 @@ image_files=sorted([
 image_id=len(coco["images"])+1
 annotation_id=len(coco["annotations"])+1
 
-
-# -----------------------------
-# Annotation loop
-# -----------------------------
 for file in image_files:
 
     if file in annotated_names:
@@ -282,6 +264,5 @@ for file in image_files:
 
     with open(ANN_PATH,"w") as f:
         json.dump(coco,f,indent=2)
-
 
 print("Annotation finished.")
