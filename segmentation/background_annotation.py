@@ -1,9 +1,10 @@
+# Program used to annotate keypoints on dataset images and create COCO style annotation file
+
 import cv2
 import numpy as np
 import json
 import os
 
-# ===== CONFIG =====
 DIR = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
 IMAGE_DIR = os.path.join(DIR, "data/backgrounds/")
 OUTPUT_DIR = os.path.join(DIR, "segmentation/annotations")
@@ -19,7 +20,6 @@ MAX_BRUSH = 100
 ZOOM_SIZE = 200
 ZOOM_SCALE = 3
 
-# ===== CALLBACK =====
 def draw(event, x, y, flags, param):
     global drawing, mouse_x, mouse_y
 
@@ -62,18 +62,15 @@ else:
 image_paths = [os.path.join(IMAGE_DIR, f) for f in os.listdir(IMAGE_DIR) if os.path.join(IMAGE_DIR, f) not in [background["image"] for background in annotations]]
 
 for image_path in image_paths:
-    # ===== LOAD ORIGINAL =====
     orig = cv2.imread(image_path)
     orig_h, orig_w = orig.shape[:2]
 
-    # ===== RESIZE =====
     scale = DISPLAY_MAX_HEIGHT / orig_h if orig_h > DISPLAY_MAX_HEIGHT else 1.0
     disp_w = int(orig_w * scale)
     disp_h = int(orig_h * scale)
 
     img = cv2.resize(orig, (disp_w, disp_h))
 
-    # ===== MASK =====
     mask = np.zeros((disp_h, disp_w), dtype=np.uint8)
 
     drawing = False
@@ -82,17 +79,15 @@ for image_path in image_paths:
 
     mouse_x, mouse_y = 0, 0
 
-    # ===== LOOP =====
     while True:
         display = img.copy()
 
-        # Overlay mask
         overlay = np.zeros_like(display)
         if stage == "foreground":
-            overlay[:, :, 2] = mask  # red
+            overlay[:, :, 2] = mask
             brush = FOREGROUND_BRUSH
         else:
-            overlay[:, :, 1] = mask  # green
+            overlay[:, :, 1] = mask
             brush = PLACEMENT_BRUSH
 
         display = cv2.addWeighted(display, 1.0, overlay, 0.5, 0)
@@ -120,7 +115,6 @@ for image_path in image_paths:
 
         key = cv2.waitKey(1) & 0xFF
 
-        # ===== NEXT STAGE =====
         if key == ord('n'):
             if stage == "foreground":
                 foreground_mask_full = cv2.resize(mask, (orig_w, orig_h), interpolation=cv2.INTER_NEAREST)
@@ -131,11 +125,9 @@ for image_path in image_paths:
                 placement_mask_full = cv2.resize(mask, (orig_w, orig_h), interpolation=cv2.INTER_NEAREST)
                 print("Placement done → press 's' to save")
 
-        # ===== CLEAR =====
         elif key == ord('c'):
             mask[:] = 0
 
-        # ===== SAVE =====
         elif key == ord('s'):
             if foreground_mask_full is None or placement_mask_full is None:
                 print("Finish both stages first")
@@ -163,7 +155,6 @@ for image_path in image_paths:
                 json.dump(annotations, f, indent=4)
             print("Saved!")
 
-        # ===== BRUSH SIZE ADJUST =====
         elif key == ord('+') or key == ord('='):
             if stage == "foreground":
                 FOREGROUND_BRUSH = min(MAX_BRUSH, FOREGROUND_BRUSH + 2)
@@ -176,12 +167,10 @@ for image_path in image_paths:
             else:
                 PLACEMENT_BRUSH = max(MIN_BRUSH, PLACEMENT_BRUSH - 2)
 
-        # ===== ERASER TOGGLE =====
         elif key == ord('e'):
             eraser = not eraser
             print("Eraser mode:", eraser)
 
-        # ===== ESC =====
         elif key == 27:
             break
 

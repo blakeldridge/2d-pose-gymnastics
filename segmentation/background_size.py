@@ -1,22 +1,14 @@
+# Code used to find the distance between two points on an image
+# loads each background image, allows 2 points to be placed and displays the distance
+# used to add min and max height to background annotation
+
 import cv2
 import numpy as np
 import json
 import os
-
-points = []
-image = None
-clone = None
-image_list = []
-current_index = 0
 
 DIR = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
 JSON_PATH = os.path.join(DIR, "segmentation/annotations/annotations.json")
-
-
-import cv2
-import numpy as np
-import json
-import os
 
 points = []
 image = None
@@ -30,7 +22,6 @@ def load_json(json_path):
     with open(json_path, 'r') as f:
         data = json.load(f)
     return [item['image'] for item in data]
-
 
 def resize_with_aspect(img, max_height=900):
     global scale_factor
@@ -48,7 +39,7 @@ def resize_with_aspect(img, max_height=900):
     resized = cv2.resize(img, (new_w, new_h))
     return resized
 
-
+# display image on screen
 def load_image(index):
     global image, clone, points
 
@@ -74,7 +65,7 @@ def load_image(index):
 
     return True
 
-
+# add circles for each click, computes distance for first 2 points placed
 def click_event(event, x, y, flags, param):
     global points, image, scale_factor
 
@@ -98,7 +89,6 @@ def click_event(event, x, y, flags, param):
             print(f"Distance (original): {original_distance:.2f} px")
 
         cv2.imshow("Image", image)
-
 
 def main():
     global current_index, image_list
@@ -131,10 +121,12 @@ def main():
         cv2.imshow("Image", image)
         key = cv2.waitKey(1) & 0xFF
 
+        # reloads same image (clears points) on 'c' pressed
         if key == ord('c'):
             load_image(current_index)
             print("Cleared points")
 
+        # moves onto next image when 'n' pressed
         elif key == ord('n'):
             current_index += 1
             if current_index >= len(image_list):

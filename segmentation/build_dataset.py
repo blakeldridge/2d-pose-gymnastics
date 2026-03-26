@@ -1,3 +1,8 @@
+# This is the code to generate a synthetic dataset
+# Chooses gymnastics backgrounds, and a COCO dataset pose
+# Transforms (rotation, perspective warp, move) person before placing them within the scene
+# Saves each image and updated annotation in COCO style dataset
+
 from segmentation.background_composition import composite_background
 from utils.visualisation import plot_skeleton
 from segment_anything import SamPredictor, sam_model_registry
@@ -12,20 +17,18 @@ DIR = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
 BACKGROUNDS = os.path.join(DIR, "data/backgrounds/")
 BACKGROUND_ANN = os.path.join(DIR, "segmentation/annotations/annotations.json")
 
+# total number of synthetic images
 CONVERSION_NUM = 20000
 
-def pick_background():
-    background_paths = [os.path.join(BACKGROUNDS, f) for f in os.listdir(BACKGROUNDS)]
-
-    return random.choice(background_paths)
-
 def build_dataset(images_dir, annotations_path, background_data, results_dir):
+    # load segmentation model to extract person from dataset
     sam = sam_model_registry["vit_b"](checkpoint=os.path.join(DIR, "segmentation/vit-b.pth"))
     predictor = SamPredictor(sam)
 
     images_converted = 0
     failed_conversions = 0
 
+    # synthetic image dirs
     result_images = os.path.join(results_dir, "images/")
     result_annotations = os.path.join(results_dir, "annotations.json")
 
@@ -36,6 +39,7 @@ def build_dataset(images_dir, annotations_path, background_data, results_dir):
     with open(annotations_path, "r") as f:
         annotations = json.load(f)
 
+    # load annotations if they already exist (to append to)
     if os.path.exists(result_annotations):
         with open(result_annotations, "r") as f:
             dataset = json.load(f)
@@ -51,6 +55,7 @@ def build_dataset(images_dir, annotations_path, background_data, results_dir):
 
     i = 0
     while conversion_count < CONVERSION_NUM:
+        # go through images again if we havent created all images yet
         if i >= len(annotations["images"]):
             i = 0 
         try:
@@ -61,6 +66,7 @@ def build_dataset(images_dir, annotations_path, background_data, results_dir):
                 raise ValueError(f"Failed to load image: {path}")
             image_id = annotations["images"][i]["id"]
 
+            # find all annotations for image
             image_annotations = [
                 ann for ann in annotations["annotations"]
                 if ann["image_id"] == image_id
@@ -70,6 +76,8 @@ def build_dataset(images_dir, annotations_path, background_data, results_dir):
                 i += 1
                 continue
 
+
+            # find all annotations for the image that can be segmented
             valid_candidates = []
 
             for ann in image_annotations:
@@ -82,11 +90,11 @@ def build_dataset(images_dir, annotations_path, background_data, results_dir):
                 if not np.all(kps[:, 2][body_idx] == 2):
                     continue
 
-                # # size filter
-                if bbox[2] * bbox[3] < 10000:
+                # ensure size is at least ~100x100
+                area = bbox[2] * bbox[3]
+                if area < 10000:
                     continue
 
-                area = bbox[2] * bbox[3]
                 valid_candidates.append((area, ann))
 
             # nothing valid in this image
@@ -96,24 +104,30 @@ def build_dataset(images_dir, annotations_path, background_data, results_dir):
 
             print(i, f"Converting {path}")
 
-            # pick largest person
+            # randomly choose person from the best 3 random candidates list
             top_k = valid_candidates[:min(3, len(valid_candidates))]
             _, best_ann = random.choice(top_k)
 
-            ann_idx = annotations["annotations"].index(best_ann)
             keypoints = best_ann["keypoints"]
             bbox = best_ann["bbox"]
 
+            # randomly choose background
             bg = background_data[random.randint(0, len(background_data)-1)]
             bg_image = cv2.imread(bg["image"])
+
+            # load mask for foreground (what to place in front of person)
             bg_foreground_mask = cv2.imread(os.path.join(DIR, bg["foreground_mask"]), cv2.IMREAD_GRAYSCALE)
+            # load mask for placement of person on background
             bg_placement_mask = cv2.imread(os.path.join(DIR, bg["placement_mask"]), cv2.IMREAD_GRAYSCALE)
+            # load size limits person can be
             bg_min_height = bg["min_height"]
             bg_max_height = bg["max_height"]
 
             start_time = time.time()
+            # create synthetic image, convert keypoints and bbox
             new_image, new_bbox, new_kps = composite_background(person_image, bbox, keypoints, bg_image, bg_placement_mask, bg_foreground_mask, predictor, [bg_min_height, bg_max_height], [-180, 180], 0.1, 0.01)
 
+            # create annotation entry for new dataset
             fname = f"{conversion_count:06d}.jpg"
             new_image_entry = {
                 "id": conversion_count,

@@ -35,14 +35,11 @@ def oks(pred, gt, scale, sigmas, vis):
     oks = (e * vis).sum(axis=1) / vis.sum(axis=1)
     return oks.mean()
 
-import numpy as np
-
-
 def compute_oks_per_sample(pred, gt, scale, sigmas, vis):
-    d = np.linalg.norm(pred - gt, axis=-1)                  # (N,J)
-    vars = (sigmas * 2)**2                                  # (J,)
-    e = np.exp(-(d**2) / (2 * (scale[:, None]**2) * vars)) # (N,J)
-    oks = (e * vis).sum(axis=1) / vis.sum()                # (N,)
+    d = np.linalg.norm(pred - gt, axis=-1)
+    vars = (sigmas * 2)**2
+    e = np.exp(-(d**2) / (2 * (scale[:, None]**2) * vars))
+    oks = (e * vis).sum(axis=1) / vis.sum()
     return oks
 
 def compute_ap_from_oks(oks_scores, thresholds):
@@ -53,7 +50,6 @@ def compute_ap_from_oks(oks_scores, thresholds):
         ap.append(correct.mean())
 
     return np.array(ap)
-
 
 def evaluate_pose(pred, gt, scale, vis, sigmas, joint_names, pck_thresholds=(0.1, 0.2), oks_thresholds=np.arange(0.5, 0.96, 0.05)):
 

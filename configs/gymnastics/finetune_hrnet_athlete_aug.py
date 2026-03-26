@@ -26,7 +26,7 @@ param_scheduler = [
 ]
 
 # automatically scaling LR based on the actual training batch size
-auto_scale_lr = dict(base_batch_size=64)
+auto_scale_lr = dict(base_batch_size=512)
 
 # hooks
 default_hooks = dict(checkpoint=dict(save_best='coco/AP', rule='greater'))
@@ -121,8 +121,8 @@ val_pipeline = [
 
 # data loaders
 train_dataloader = dict(
-    batch_size=64,
-    num_workers=4,
+    batch_size=512,
+    num_workers=8,
     persistent_workers=True,
     sampler=dict(type='DefaultSampler', shuffle=True),
     dataset=dict(

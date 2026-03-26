@@ -171,5 +171,5 @@ val_evaluator = dict(
     ann_file=data_root + 'annotations/person_keypoints_val2017.json')
 
 test_evaluator = dict(
-    type='CocoMetric',
-    ann_file=test_root + 'annotations.json')
+        type='CocoMetric',
+        ann_file=test_root + 'annotations.json')

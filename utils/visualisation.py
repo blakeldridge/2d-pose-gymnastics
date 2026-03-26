@@ -1,36 +1,19 @@
-# takes model outputs and image and builds graphs showing image output with joints
-
 import cv2
 from PIL import Image, ImageDraw
 import matplotlib.pyplot as plt
 
 coco_connections = [
-    # head
-    [0,1], [0,2],
-    [1,3], [2,4],
-
-    # upper body
-    [5,6],
-    [5,7], [7,9],
-    [6,8], [8,10],
-
-    # torso
-    [5,11], [6,12],
-    [11,12],
-
-    # lower body
-    [11,13], [13,15],
-    [12,14], [14,16]
+    [0,1], [0,2], [1,3], [2,4], [5,6], [5,7], [7,9], [6,8], [8,10], [5,11], [6,12], [11,12], [11,13], [13,15], [12,14], [14,16]
 ]
-def plot_skeleton(frame_path, p2ds, connections=coco_connections, shoulders=[5, 6], side_by_side=False):
+def plot_skeleton(frame_path, p2ds, connections=coco_connections, shoulders=[5, 6], side_by_side=False, bbox=None):
     frame = cv2.imread(frame_path)
     frame_rgb = frame[:, :, ::-1]
 
     colours = [
-        "tab:blue","tab:orange","tab:green","tab:red","tab:purple",
-        "tab:brown","tab:pink","tab:gray","tab:olive","tab:cyan"
+        "blue","orange","green","red","purple","brown","pink","gray","olive","cyan"
     ]
 
+    # draw skeleton on graph next to frame
     if side_by_side:
         fig, axes = plt.subplots(1, 2, figsize=(10, 5))
         ax_img, ax_pose = axes
@@ -48,12 +31,12 @@ def plot_skeleton(frame_path, p2ds, connections=coco_connections, shoulders=[5, 
 
     for colour, skeleton in zip(colours, p2ds):
 
-        # scatter points
+        # scatter keypoints of skeleton
         ax_img.scatter(skeleton[:,0], skeleton[:,1], c=colour, s=5)
         if side_by_side:
             ax_pose.scatter(skeleton[:,0], skeleton[:,1], c=colour, s=10)
 
-        # skeleton lines
+        # draw skeleton lines / connections
         for c in connections:
             x = [skeleton[c[0],0], skeleton[c[1],0]]
             y = [skeleton[c[0],1], skeleton[c[1],1]]
@@ -63,7 +46,7 @@ def plot_skeleton(frame_path, p2ds, connections=coco_connections, shoulders=[5, 
             if side_by_side:
                 ax_pose.plot(x, y, colour, linewidth=1)
 
-        # nose → shoulder midpoint
+        # join nose to shoulder midpoint
         shoulder_mid = (skeleton[shoulders[0]] + skeleton[shoulders[1]]) / 2
         nose = skeleton[0]
 
@@ -75,8 +58,15 @@ def plot_skeleton(frame_path, p2ds, connections=coco_connections, shoulders=[5, 
         if side_by_side:
             ax_pose.plot(x, y, colour, linewidth=1)
 
+    # draw bbox around person
+    if bbox is not None:
+        x, y, w, h = bbox
+        x1, x2 = x, x + w
+        y1, y2 = y, y + h
+        ax_img.plot([x1, x2, x2, x1, x1], [y1, y1, y2, y2, y1], "red", linewidth=1)
+
     if side_by_side:
-        ax_pose.invert_yaxis()  # match image coordinate system
+        ax_pose.invert_yaxis()
 
     plt.tight_layout()
     plt.show()

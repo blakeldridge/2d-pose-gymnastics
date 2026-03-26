@@ -1,15 +1,31 @@
 _base_ = ['../_base_/default_runtime.py']
 
-load_from = "models/hrnet/checkpoint.pth"
+load_from = "models/vitpose/checkpoint.pth"
 
 # runtime
-train_cfg = dict(max_epochs=100, val_interval=10)
+train_cfg = dict(max_epochs=150, val_interval=10)
 
 # optimizer
-optim_wrapper = dict(optimizer=dict(
-    type='Adam',
-    lr=1e-4,
-))
+custom_imports = dict(
+    imports=['mmpose.engine.optim_wrappers.layer_decay_optim_wrapper'],
+    allow_failed_imports=False)
+
+optim_wrapper = dict(
+    optimizer=dict(
+        type='AdamW', lr=1e-4, betas=(0.9, 0.999), weight_decay=0.1),
+    paramwise_cfg=dict(
+        num_layers=12,
+        layer_decay_rate=0.75,
+        custom_keys={
+            'bias': dict(decay_multi=0.0),
+            'pos_embed': dict(decay_mult=0.0),
+            'relative_position_bias_table': dict(decay_mult=0.0),
+            'norm': dict(decay_mult=0.0),
+        },
+    ),
+    constructor='LayerDecayOptimWrapperConstructor',
+    clip_grad=dict(max_norm=1., norm_type=2),
+)
 
 # learning policy
 param_scheduler = [
@@ -19,8 +35,8 @@ param_scheduler = [
     dict(
         type='MultiStepLR',
         begin=0,
-        end=100,
-        milestones=[60, 80],
+        end=150,
+        milestones=[100, 130],
         gamma=0.1,
         by_epoch=True)
 ]
@@ -29,11 +45,12 @@ param_scheduler = [
 auto_scale_lr = dict(base_batch_size=128)
 
 # hooks
-default_hooks = dict(checkpoint=dict(save_best='coco/AP', rule='greater'))
+default_hooks = dict(
+    checkpoint=dict(save_best='coco/AP', rule='greater'))
 
 # codec settings
 codec = dict(
-    type='MSRAHeatmap', input_size=(192, 256), heatmap_size=(48, 64), sigma=2)
+    type='UDPHeatmap', input_size=(192, 256), heatmap_size=(48, 64), sigma=2)
 
 # model settings
 model = dict(
@@ -44,55 +61,38 @@ model = dict(
         std=[58.395, 57.12, 57.375],
         bgr_to_rgb=True),
     backbone=dict(
-        type='HRNet',
-        in_channels=3,
-        extra=dict(
-            stage1=dict(
-                num_modules=1,
-                num_branches=1,
-                block='BOTTLENECK',
-                num_blocks=(4, ),
-                num_channels=(64, )),
-            stage2=dict(
-                num_modules=1,
-                num_branches=2,
-                block='BASIC',
-                num_blocks=(4, 4),
-                num_channels=(48, 96)),
-            stage3=dict(
-                num_modules=4,
-                num_branches=3,
-                block='BASIC',
-                num_blocks=(4, 4, 4),
-                num_channels=(48, 96, 192)),
-            stage4=dict(
-                num_modules=3,
-                num_branches=4,
-                block='BASIC',
-                num_blocks=(4, 4, 4, 4),
-                num_channels=(48, 96, 192, 384))),
+        type='mmpretrain.VisionTransformer',
+        arch='base',
+        img_size=(256, 192),
+        patch_size=16,
+        qkv_bias=True,
+        drop_path_rate=0.3,
+        with_cls_token=False,
+        out_type='featmap',
+        patch_cfg=dict(padding=2),
         init_cfg=dict(
             type='Pretrained',
             checkpoint='https://download.openmmlab.com/mmpose/'
-            'pretrain_models/hrnet_w48-8ef0771d.pth'),
+            'v1/pretrained_models/mae_pretrain_vit_base_20230913.pth'),
     ),
     head=dict(
         type='HeatmapHead',
-        in_channels=48,
+        in_channels=768,
         out_channels=17,
-        deconv_out_channels=None,
+        deconv_out_channels=(256, 256),
+        deconv_kernel_sizes=(4, 4),
         loss=dict(type='KeypointMSELoss', use_target_weight=True),
         decoder=codec),
     test_cfg=dict(
         flip_test=True,
         flip_mode='heatmap',
-        shift_heatmap=True,
+        shift_heatmap=False,
     ))
 
 # base dataset settings
 dataset_type = 'CocoDataset'
 data_mode = 'topdown'
-data_root = 'data/segmentation_images/'
+data_root = 'data/merged_dataset/'
 test_root = 'data/test/'
 
 # pipelines
@@ -129,7 +129,6 @@ train_dataloader = dict(
         data_prefix=dict(img='images/'),
         pipeline=train_pipeline,
     ))
-
 val_dataloader = dict(
     batch_size=32,
     num_workers=2,

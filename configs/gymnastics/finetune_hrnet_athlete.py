@@ -8,7 +8,7 @@ train_cfg = dict(max_epochs=100, val_interval=10)
 # optimizer
 optim_wrapper = dict(optimizer=dict(
     type='Adam',
-    lr=5e-5,
+    lr=5e-4,
 ))
 
 # learning policy
@@ -26,7 +26,7 @@ param_scheduler = [
 ]
 
 # automatically scaling LR based on the actual training batch size
-auto_scale_lr = dict(base_batch_size=64)
+auto_scale_lr = dict(base_batch_size=128)
 
 # hooks
 default_hooks = dict(checkpoint=dict(save_best='coco/AP', rule='greater'))
@@ -46,6 +46,7 @@ model = dict(
     backbone=dict(
         type='HRNet',
         in_channels=3,
+        frozen_stages=2,
         extra=dict(
             stage1=dict(
                 num_modules=1,
@@ -100,7 +101,7 @@ train_pipeline = [
     dict(type='LoadImage'),
     dict(type='GetBBoxCenterScale'),
     dict(type='RandomFlip', direction='horizontal'),
-    dict(type='RandomHalfBody'),
+    # dict(type='RandomHalfBody'),
     dict(type='RandomBBoxTransform'),
     dict(type='TopdownAffine', input_size=codec['input_size']),
     dict(type='GenerateTarget', encoder=codec),
@@ -115,8 +116,8 @@ val_pipeline = [
 
 # data loaders
 train_dataloader = dict(
-    batch_size=64,
-    num_workers=4,
+    batch_size=128,
+    num_workers=8,
     persistent_workers=True,
     sampler=dict(type='DefaultSampler', shuffle=True),
     dataset=dict(

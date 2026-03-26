@@ -46,6 +46,7 @@ model = dict(
     backbone=dict(
         type='HRNet',
         in_channels=3,
+        frozen_stages=2,
         extra=dict(
             stage1=dict(
                 num_modules=1,
@@ -92,8 +93,7 @@ model = dict(
 # base dataset settings
 dataset_type = 'CocoDataset'
 data_mode = 'topdown'
-synthetic_root = 'data/segmentation_images/'
-real_root = 'data/test/'
+data_root = 'data/segmentation_images/'
 test_root = 'data/test/'
 
 # pipelines
@@ -119,38 +119,18 @@ val_pipeline = [
 # data loaders
 train_dataloader = dict(
     batch_size=128,
-    num_workers=8,
+    num_workers=4,
     persistent_workers=True,
     sampler=dict(type='DefaultSampler', shuffle=True),
     dataset=dict(
-        type="CombinedDataset",
-        datasets=[
-            dict(
-                type=dataset_type,
-                data_root=synthetic_root,
-                data_mode=data_mode,
-                ann_file='annotations.json',
-                data_prefix=dict(img='images/'),
-            ),
-            dict(
-                type="RepeatDataset",
-                times=8,
-                dataset=dict(
-                    type="SubsetDataset",
-                    dataset=dict(
-                        type=dataset_type,
-                        data_root=real_root,
-                        data_mode=data_mode,
-                        ann_file="train.json",
-                        data_prefix=dict(img="images/")
-                    ),
-                    indices=list(range(100))
-                )
-            )
-        ],
-        pipeline=train_pipeline
-    )
-)
+        type=dataset_type,
+        data_root=data_root,
+        data_mode=data_mode,
+        ann_file='annotations.json',
+        data_prefix=dict(img='images/'),
+        pipeline=train_pipeline,
+    ))
+
 val_dataloader = dict(
     batch_size=32,
     num_workers=2,
@@ -161,7 +141,7 @@ val_dataloader = dict(
         type=dataset_type,
         data_root=test_root,
         data_mode=data_mode,
-        ann_file='test.json',
+        ann_file='annotations.json',
         data_prefix=dict(img='images/'),
         test_mode=True,
         pipeline=val_pipeline

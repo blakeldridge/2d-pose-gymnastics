@@ -1,3 +1,16 @@
+# Code used to run through the synthetic dataset generation pipeline
+
+# Segments person from an annotated image and takes background
+# Rotates and adds shear to segmented person before placing them "within" the background
+# Tranforms keypoints to match new placement + orientation of segmented person
+
+# Then estimates blur and noise of background to match person's blur and noise
+# match contrast and brightness of background
+# blur edges of segmented person (comes out pixelated otherwise)
+# feather blend edges of person to merge into the background better
+
+# apply jpeg compression of images to match "phones"
+
 import os
 import cv2
 import numpy as np
@@ -11,6 +24,7 @@ JPEG_PROB = 0.7
 ROTATE_PROB = 0.5
 PERSP_PROB = 0.3
 
+# calculate COCO bbox of rotated person 
 def mask_to_bbox(mask):
     ys, xs = np.where(mask)
 
@@ -22,37 +36,41 @@ def mask_to_bbox(mask):
     
     return [x1, y1, x2-x1, y2-y1]
 
+# compute blur of an image
 def estimate_blur(img):
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     return cv2.Laplacian(gray, cv2.CV_64F).var()
 
+# compute noise of an image
 def estimate_noise(img):
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY).astype(np.float32)
     blur = cv2.GaussianBlur(gray, (3,3), 0)
     noise = gray - blur
     return np.std(noise)
 
+# compress image to a certain quality
 def apply_jpeg(img, quality):
     encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), quality]
     _, enc = cv2.imencode('.jpg', img, encode_param)
     return cv2.imdecode(enc, 1)
 
+# match brightness and contrast of person to background
 def match_contrast(fg_crop, mask, bg_roi, ring_size=15, clamp_scale=(0.7, 1.3), clamp_shift=(-30, 30), fallback_jitter=True):
     mask = mask.astype(np.uint8)
     
-    # Compute the ring around mask
+    # Get local background surroundings of person mask by dilating 
     kernel = np.ones((ring_size, ring_size), np.uint8)
     dilated = cv2.dilate(mask, kernel)
     ring = (dilated - mask).astype(bool)
     
-    # Convert both to LAB for luminance-only adjustment
+    # Convert both to LAB for brightness adjustment
     fg_lab = cv2.cvtColor(fg_crop, cv2.COLOR_BGR2LAB).astype(np.float32)
     bg_lab = cv2.cvtColor(bg_roi, cv2.COLOR_BGR2LAB).astype(np.float32)
     
     L_fg = fg_lab[..., 0]
     L_bg = bg_lab[..., 0]
     
-    # Check if ring has enough pixels, else fallback
+    # apply random brightness and contrast change for areas that are too small
     if np.sum(ring) < 10:
         if fallback_jitter:
             alpha = np.random.uniform(0.9, 1.1)
@@ -60,11 +78,11 @@ def match_contrast(fg_crop, mask, bg_roi, ring_size=15, clamp_scale=(0.7, 1.3), 
             fg_crop = np.clip(fg_crop * alpha + beta, 0, 255).astype(np.uint8)
         return fg_crop
     
-    # Compute statistics
+    # Compute average brightness and variation (contrast) for person and background
     fg_mean, fg_std = L_fg[mask.astype(bool)].mean(), L_fg[mask.astype(bool)].std()
     bg_mean, bg_std = L_bg[ring].mean(), L_bg[ring].std()
     
-    # Compute scale and shift, with clamping
+    # Compute contrast scale and brightness shift
     scale = np.clip(bg_std / (fg_std + 1e-6), clamp_scale[0], clamp_scale[1])
     shift = np.clip(bg_mean - fg_mean, clamp_shift[0], clamp_shift[1])
     
@@ -77,26 +95,33 @@ def match_contrast(fg_crop, mask, bg_roi, ring_size=15, clamp_scale=(0.7, 1.3), 
     
     return fg_adjusted
 
+# blur edge of image into background
 def feathered_blend(fg_crop, mask, bg_roi, feather_radius=15):
     mask = mask.astype(np.float32)
+    # create blur of enlarged person mask 
     mask_blurred = cv2.GaussianBlur(mask, (2*feather_radius+1, 2*feather_radius+1), 0)
-    mask_blurred = mask_blurred[..., None]  # (H,W,1)
+    mask_blurred = mask_blurred[..., None]
     
     fg_crop = fg_crop.astype(np.float32)
     bg_roi = bg_roi.astype(np.float32)
     
+    # merge blurred mask with background
     blended = fg_crop * mask_blurred + bg_roi * (1 - mask_blurred)
     blended = np.clip(blended, 0, 255).astype(np.uint8)
     
     return blended
 
+# scale, rotate and shear person image, mask and keypoints by a specified angle
 def transform_foreground(image, mask, keypoints, angle, scale=1.0, max_shear=0.05, max_persp=0.0005):
     h, w = image.shape[:2]
 
+    # Enlarge person segment and keypoints
     if scale != 1:
+        # resize image and mask
         target_h, target_w = int(h * scale), int(w * scale)
         image = cv2.resize(image, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
         mask = cv2.resize(mask.astype(np.uint8), (target_w, target_h), interpolation=cv2.INTER_NEAREST)
+        # resize keypoints
         scaled_keypoints = []
         for i in range(0, len(keypoints), 3):
             x, y, v = keypoints[i:i+3]
@@ -109,12 +134,15 @@ def transform_foreground(image, mask, keypoints, angle, scale=1.0, max_shear=0.0
 
         keypoints = scaled_keypoints
 
+        # update width and height
         h, w = target_h, target_w
 
+    # get rotation matrix for angle around center
     cx, cy = w / 2, h / 2
     M_rot = cv2.getRotationMatrix2D((cx, cy), angle, 1.0)
     M_rot = np.vstack([M_rot, [0, 0, 1]])
 
+    # get random displacement for each corner
     corners = np.array([
         [0, 0],
         [w, 0],
@@ -130,9 +158,13 @@ def transform_foreground(image, mask, keypoints, angle, scale=1.0, max_shear=0.0
 
     dst_corners = np.array([jitter(pt) for pt in corners], dtype=np.float32)
 
+    # compute perspective matrix 
     H_persp = cv2.getPerspectiveTransform(corners, dst_corners)
+    
+    # combine with rotation matrix
     H = H_persp @ M_rot
 
+    # apply to each corner and compute new bbox
     corners_h = np.hstack([corners, np.ones((4,1))])
     warped_corners = (H @ corners_h.T).T
     warped_corners = warped_corners[:, :2] / warped_corners[:, 2:]
@@ -151,9 +183,11 @@ def transform_foreground(image, mask, keypoints, angle, scale=1.0, max_shear=0.0
 
     H = T @ H
 
+    # compute final image and mask
     warped_img = cv2.warpPerspective(image, H, (new_w, new_h), flags=cv2.INTER_LINEAR)
     warped_mask = cv2.warpPerspective(mask.astype(np.uint8), H, (new_w, new_h), flags=cv2.INTER_NEAREST)
 
+    # compute final keypoints
     warped_kps = []
     for i in range(0, len(keypoints), 3):
         x, y, v = keypoints[i:i+3]
@@ -171,7 +205,9 @@ def transform_foreground(image, mask, keypoints, angle, scale=1.0, max_shear=0.0
 
     return warped_img, warped_mask.astype(bool), warped_kps
 
+# PIPELINE TO PLACE PERSON ONTO BACKGROUND
 def composite_background(image, person_bbox, keypoints, background_image, placement_mask, foreground_mask, predictor, size_limits, angle_limits=[-15, 15], max_shear=0.05, max_persp=0.0005):
+    # Segment person of interest from labelled image
     predictor.set_image(image)
     x, y, w, h = person_bbox
     sam_box = np.array([x, y, x+w, y+h])
@@ -187,12 +223,14 @@ def composite_background(image, person_bbox, keypoints, background_image, placem
     if len(xs) == 0 or len(ys) == 0:
         raise ValueError("Empty mask from SAM — no foreground detected")
     
+    # crop person segment
     my1, my2 = ys.min(), ys.max()
     mx1, mx2 = xs.min(), xs.max()
 
     foreground_crop = person[my1:my2, mx1:mx2]
     mask_crop = mask[my1:my2, mx1:mx2]
     
+    # adjust keypoints to cropped image
     cropped_kps = []
     for i in range(0, len(keypoints), 3):
         kx, ky, v = keypoints[i:i+3]
@@ -202,6 +240,7 @@ def composite_background(image, person_bbox, keypoints, background_image, placem
         cropped_kps.extend([kx - mx1, ky - my1, v])
 
 
+    # compute rotation angle, shear and scale augmentations
     if np.random.rand() < ROTATE_PROB:    
         angle = np.random.uniform(angle_limits[0], angle_limits[1])
     else:
@@ -212,6 +251,8 @@ def composite_background(image, person_bbox, keypoints, background_image, placem
         max_shear = max_shear
     else:
         max_shear = 0
+
+    # transform person segment
     foreground_crop, mask_crop, rotated_kps = transform_foreground(
         foreground_crop,
         mask_crop,
@@ -222,13 +263,14 @@ def composite_background(image, person_bbox, keypoints, background_image, placem
         max_persp
     )
 
+    # compute new bbox
     mask_bbox = mask_to_bbox(mask_crop)
     h, w = foreground_crop.shape[:2]
     H_bg, W_bg = background_image.shape[:2]
 
-    # PLACE IN NEW BACKGROUND
-    # placement_indices = np.argwhere(placement_mask > 0)
-    # y, x = placement_indices[np.random.choice(len(placement_indices))][:2]
+    # place in new background
+
+    # identify x, y coord to place person based on placement mask
     ys, xs = np.where(placement_mask > 0)
 
     valid = (
@@ -244,6 +286,7 @@ def composite_background(image, person_bbox, keypoints, background_image, placem
     idx = np.random.randint(len(xs))
     y, x = ys[idx] - h//2, xs[idx] - w//2
 
+    # adjust bbox and keypoints based on placement
     bbox = [x+mask_bbox[0], y+mask_bbox[1], mask_bbox[2], mask_bbox[3]]
 
     keypoints = []
@@ -254,8 +297,10 @@ def composite_background(image, person_bbox, keypoints, background_image, placem
             continue
 
         keypoints.extend([kx + x, ky + y, v])
+
     # Place foreground on background
-    # foreground = np.where(foreground_mask > 0, background_image, 0)
+    
+    # identify areas of foreground from background image
     foreground = np.where(foreground_mask[..., None] > 0, background_image, 0)
 
     h, w = foreground_crop.shape[:2]
@@ -291,19 +336,22 @@ def composite_background(image, person_bbox, keypoints, background_image, placem
     noise = np.random.normal(0, noise_to_add, fg_crop.shape).astype(np.float32)
     fg_crop = np.clip(fg_crop.astype(np.float32) + noise, 0, 255).astype(np.uint8)
 
+    # match brightness and contrast
     fg_crop = match_contrast(fg_crop, mask_valid, roi)
 
     kernel = np.ones((3,3), np.uint8)
     mask_valid = cv2.morphologyEx(mask_valid.astype(np.uint8), cv2.MORPH_CLOSE, kernel, iterations=1)
     
+    # extended blended edges of person by feather blending
     roi = feathered_blend(fg_crop, mask_valid, roi, feather_radius=15)
 
     mask = mask_valid.astype(np.uint8)
 
     kernel = np.ones((7,7), np.uint8)
 
+    # smooth person edges to remove pixely edges
     eroded = cv2.erode(mask, kernel)
-    edge_band = mask - eroded   # thin ring at boundary
+    edge_band = mask - eroded
 
     blurred_fg = cv2.GaussianBlur(fg_crop, (11,11), 0)
 
@@ -311,14 +359,15 @@ def composite_background(image, person_bbox, keypoints, background_image, placem
 
     roi = np.where(edge_band_3, blurred_fg, roi)
 
-    # Apply mask
+    # Place person on background
     roi[mask_valid.astype(bool)] = fg_crop[mask_valid.astype(bool)]
 
-    # Write back
     background_image[y:y_end, x:x_end] = roi
 
+    # place foreground pixels above person
     result = np.where(foreground != 0, foreground, background_image)
 
+    # adjust keypoints to match any introduced occlusion
     v_keypoints = []
     for i in range(0, len(keypoints), 3):
         kx, ky, v = keypoints[i:i+3]
@@ -334,6 +383,7 @@ def composite_background(image, person_bbox, keypoints, background_image, placem
         else:
             v_keypoints.extend([kx, ky, v])
 
+    # randomly jpeg compress images
     if np.random.rand() < JPEG_PROB:
         quality = np.random.randint(60, 95)
         result = apply_jpeg(result, quality)

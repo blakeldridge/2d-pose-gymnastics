@@ -1,3 +1,5 @@
+# Compute AP for mediapipe inference
+
 from mediapipe_test.model import MediaPipe
 import os
 import json
