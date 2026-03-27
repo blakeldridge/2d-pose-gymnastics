@@ -2,15 +2,13 @@ import json
 import random
 import os
 
-# === CONFIG ===
 DIR = os.path.abspath(os.path.dirname(__file__))
 INPUT_JSON = os.path.join(DIR, "annotations.json")
 TRAIN_JSON = os.path.join(DIR, "train.json")
 TEST_JSON = os.path.join(DIR, "test.json")
 NUM_TRAIN = 100
-SEED = 42  # for reproducibility
+SEED = 42
 
-# === LOAD ===
 with open(INPUT_JSON, "r") as f:
     coco = json.load(f)
 
@@ -18,23 +16,18 @@ images = coco["images"]
 annotations = coco["annotations"]
 categories = coco.get("categories", [])
 
-# === SHUFFLE IMAGES ===
 random.seed(SEED)
 random.shuffle(images)
 
-# === SPLIT ===
 train_images = images[:NUM_TRAIN]
 test_images = images[NUM_TRAIN:]
 
-# Get image IDs
 train_ids = set(img["id"] for img in train_images)
 test_ids = set(img["id"] for img in test_images)
 
-# === SPLIT ANNOTATIONS ===
 train_annotations = [ann for ann in annotations if ann["image_id"] in train_ids]
 test_annotations = [ann for ann in annotations if ann["image_id"] in test_ids]
 
-# === BUILD COCO STRUCTURE ===
 train_coco = {
     "images": train_images,
     "annotations": train_annotations,
@@ -47,7 +40,6 @@ test_coco = {
     "categories": categories
 }
 
-# === SAVE ===
 with open(TRAIN_JSON, "w") as f:
     json.dump(train_coco, f, indent=4)
 
