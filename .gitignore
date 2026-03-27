@@ -139,3 +139,6 @@ results/
 mediapipe_test/**/*.json
 data/**/**/*.jpg
 data/**/**/*.json
+tracking/*.mp4
+tracking/*.json
+tracking/test_frames/
