@@ -91,7 +91,7 @@ visibility = visibility[np.newaxis, :, :]
 # Load the original image from the path
 results = dict(
     img_path='/home/blake-eldridge/Repos/mmpose/tests/data/coco/000000196141.jpg',
-    keypoints=keypoints_xy,
+    keypoints=np.array([keypoints_xy]),
     bbox=bbox_array
 )
 
@@ -104,20 +104,23 @@ results = transform(results)
 # transform = RandomFlip(direction="horizontal")
 # results = transform(results)
 
-transform = BlurLimbs(blur_prob=0.3)
-results = transform(results)
-
-transform = OccludeLimbs(occlusion_prob=0.4, max_size_ratio=0.1)
-results = transform(results)
-
 transform = RotateImage(rotation_prob=1, rotation_limits=[-180, 180])
 results = transform(results)
 
+transform = BlurLimbs(blur_prob=0.3)
+results = transform(results)
+
+# transform = OccludeLimbs(occlusion_prob=0.4, max_size_ratio=0.1)
+# results = transform(results)
+
 transform = Albumentation(transforms=[
-    dict(type='RandomBrightnessContrast', brightness_limit=0.2, contrast_limit=0.2, p=1),
+    dict(type='RandomBrightnessContrast', brightness_limit=0.15, contrast_limit=0.1, p=1),
 ])
+results = transform(results)
+
+transform = RandomBBoxTransform()
 results = transform(results)
 
 cv2.imwrite("aug_image.jpg", results["img"])
 
-plot_skeleton("aug_image.jpg", [results["keypoints"]])
+plot_skeleton("aug_image.jpg", results["keypoints"])

@@ -4,7 +4,6 @@ import shutil
 import random
 from tqdm import tqdm
 
-# ---------------- CONFIG ----------------
 synthetic_json = "segmentation_images/10Kannotations.json"
 synthetic_img_dir = "segmentation_images/images"
 
@@ -15,20 +14,18 @@ output_dir = "merged_dataset"
 output_img_dir = os.path.join(output_dir, "images")
 output_json = os.path.join(output_dir, "annotations.json")
 
-num_coco_samples = 1000  # change to 5000 if needed
+num_coco_samples = 1000
 num_synthetic_samples = 2000
 random.seed(42)
 
 os.makedirs(output_img_dir, exist_ok=True)
 
-# ---------------- LOAD ----------------
 with open(synthetic_json) as f:
     synth = json.load(f)
 
 with open(coco_json) as f:
     coco = json.load(f)
 
-# ---------------- INIT OUTPUT ----------------
 if os.path.exists(output_json):
     print("Found existing merged dataset. Loading...")
     with open(output_json) as f:
@@ -47,19 +44,15 @@ def copy_image(src_path, dst_path):
     if not os.path.exists(dst_path):
         shutil.copy(src_path, dst_path)
 
-# ---------------- ADD SYNTHETIC ----------------
 print("Sampling COCO data...")
 
-# group annotations by image_id
 synth_anns_per_img = {}
 for ann in synth["annotations"]:
     synth_anns_per_img.setdefault(ann["image_id"], []).append(ann)
 
-# filter images that actually have people
 valid_images = [img for img in synth["images"] if img["id"] in synth_anns_per_img]
 
 sampled_images = random.sample(valid_images, num_synthetic_samples)
-
 
 print("Adding synthetic data...")
 
@@ -91,20 +84,16 @@ for img in tqdm(sampled_images):
         merged["annotations"].append(new_ann)
         new_ann_id += 1
 
-# ---------------- SAMPLE COCO ----------------
 print("Sampling COCO data...")
 
-# group annotations by image_id
 coco_anns_per_img = {}
 for ann in coco["annotations"]:
     coco_anns_per_img.setdefault(ann["image_id"], []).append(ann)
 
-# filter images that actually have people
 valid_images = [img for img in coco["images"] if img["id"] in coco_anns_per_img]
 
 sampled_images = random.sample(valid_images, num_coco_samples)
 
-# ---------------- ADD COCO ----------------
 print("Adding COCO data...")
 
 img_id_map = {}
@@ -127,7 +116,6 @@ for img in tqdm(sampled_images):
 
     new_image_id += 1
 
-    # add annotations for this image
     for ann in coco_anns_per_img[old_id]:
         new_ann = ann.copy()
         new_ann["id"] = new_ann_id
@@ -136,7 +124,6 @@ for img in tqdm(sampled_images):
         merged["annotations"].append(new_ann)
         new_ann_id += 1
 
-# ---------------- SAVE ----------------
 print("Saving merged dataset...")
 
 with open(output_json, "w") as f:

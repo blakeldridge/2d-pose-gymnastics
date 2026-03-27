@@ -4,9 +4,9 @@ import numpy as np
 from utils import visualisation
 
 DIR = os.path.abspath(os.path.dirname(__file__))
-image_dir = os.path.join(DIR, "images")
+image_dir = os.path.join(DIR, "deblurred_images")
 
-POI = [61, 102, 68, 113]
+# POI = [61, 102, 68, 113]
 
 def get_keypoints_for_image(coco, filename):
     # 1. find image id
@@ -16,8 +16,8 @@ def get_keypoints_for_image(coco, filename):
             image_id = img["id"]
             break
 
-    if image_id not in POI:
-        return None
+    # if image_id not in POI:
+    #     return None
     
     print("id", image_id)
 
