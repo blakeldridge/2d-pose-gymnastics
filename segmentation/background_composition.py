@@ -205,8 +205,7 @@ def transform_foreground(image, mask, keypoints, angle, scale=1.0, max_shear=0.0
 
     return warped_img, warped_mask.astype(bool), warped_kps
 
-# PIPELINE TO PLACE PERSON ONTO BACKGROUND
-def composite_background(image, person_bbox, keypoints, background_image, placement_mask, foreground_mask, predictor, size_limits, angle_limits=[-15, 15], max_shear=0.05, max_persp=0.0005):
+def segment_person(image, person_bbox, keypoints, predictor):
     # Segment person of interest from labelled image
     predictor.set_image(image)
     x, y, w, h = person_bbox
@@ -239,6 +238,11 @@ def composite_background(image, person_bbox, keypoints, background_image, placem
             continue
         cropped_kps.extend([kx - mx1, ky - my1, v])
 
+    return foreground_crop, mask_crop, [0, 0, w, h], cropped_kps
+
+# PIPELINE TO PLACE PERSON ONTO BACKGROUND
+def composite_background(foreground_crop, mask_crop, keypoints, background_image, placement_mask, foreground_mask,  size_limits, angle_limits=[-15, 15], max_shear=0.05, max_persp=0.0005):
+    # imaged expected to be cropped around person already
 
     # compute rotation angle, shear and scale augmentations
     if np.random.rand() < ROTATE_PROB:    
@@ -256,7 +260,7 @@ def composite_background(image, person_bbox, keypoints, background_image, placem
     foreground_crop, mask_crop, rotated_kps = transform_foreground(
         foreground_crop,
         mask_crop,
-        cropped_kps,
+        keypoints,
         angle,
         scale,
         max_shear,

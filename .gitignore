@@ -138,6 +138,7 @@ results/
 *.task
 mediapipe_test/**/*.json
 data/**/**/*.jpg
+data/**/**/*.png
 data/**/**/*.json
 tracking/*.mp4
 tracking/*.json

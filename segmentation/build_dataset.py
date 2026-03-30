@@ -3,7 +3,7 @@
 # Transforms (rotation, perspective warp, move) person before placing them within the scene
 # Saves each image and updated annotation in COCO style dataset
 
-from segmentation.background_composition import composite_background
+from segmentation.background_composition import composite_background, segment_person
 from utils.visualisation import plot_skeleton
 from segment_anything import SamPredictor, sam_model_registry
 import os
@@ -18,9 +18,9 @@ BACKGROUNDS = os.path.join(DIR, "data/backgrounds/")
 BACKGROUND_ANN = os.path.join(DIR, "segmentation/annotations/annotations.json")
 
 # total number of synthetic images
-CONVERSION_NUM = 20000
+CONVERSION_NUM = 10
 
-def build_dataset(images_dir, annotations_path, background_data, results_dir):
+def build_dataset_from_coco(images_dir, annotations_path, background_data, results_dir):
     # load segmentation model to extract person from dataset
     sam = sam_model_registry["vit_b"](checkpoint=os.path.join(DIR, "segmentation/vit-b.pth"))
     predictor = SamPredictor(sam)
@@ -125,7 +125,9 @@ def build_dataset(images_dir, annotations_path, background_data, results_dir):
 
             start_time = time.time()
             # create synthetic image, convert keypoints and bbox
-            new_image, new_bbox, new_kps = composite_background(person_image, bbox, keypoints, bg_image, bg_placement_mask, bg_foreground_mask, predictor, [bg_min_height, bg_max_height], [-180, 180], 0.1, 0.01)
+
+            foreground, mask, bbox, keypoints = segment_person(person_image, bbox, keypoints, predictor)
+            new_image, new_bbox, new_kps = composite_background(foreground, mask, keypoints, bg_image, bg_placement_mask, bg_foreground_mask, [bg_min_height, bg_max_height], [-180, 180], 0.1, 0.01)
 
             # create annotation entry for new dataset
             fname = f"{conversion_count:06d}.jpg"
@@ -170,18 +172,164 @@ def build_dataset(images_dir, annotations_path, background_data, results_dir):
     if failed_conversions > 0:
         print(f"Failed conversions : {failed_conversions}")
 
+def build_dataset_from_3d(images_dir, annotations_path, background_data, results_dir):
+    images_converted = 0
+
+    # synthetic image dirs
+    result_images = os.path.join(results_dir, "images/")
+    result_annotations = os.path.join(results_dir, "annotations.json")
+
+    os.makedirs(result_images, exist_ok=True)
+
+    body_idx = [0, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
+
+    with open(annotations_path, "r") as f:
+        annotations = json.load(f)
+
+    # load annotations if they already exist (to append to)
+    if os.path.exists(result_annotations):
+        with open(result_annotations, "r") as f:
+            dataset = json.load(f)
+
+        conversion_count = len(dataset["images"])
+    else:
+        dataset = {
+            "images": [],
+            "annotations": [],
+            "categories": annotations["categories"]
+        }
+        conversion_count = 0
+
+    i = 0
+    while conversion_count < CONVERSION_NUM:
+        # go through images again if we havent created all images yet
+        if i >= len(annotations["images"]):
+            i = 0 
+        try:
+            filename = annotations["images"][i]["file_name"]
+            path = os.path.join(images_dir, filename)
+            person_image = cv2.imread(path, cv2.IMREAD_UNCHANGED)
+            if person_image is None:
+                raise ValueError(f"Failed to load image: {path}")
+            image_id = annotations["images"][i]["id"]
+
+            # find all annotations for image
+            image_annotations = [
+                ann for ann in annotations["annotations"]
+                if ann["image_id"] == image_id
+            ]
+
+            print(i, f"Converting {path}")
+
+            best_ann = image_annotations[0]
+
+            keypoints = best_ann["keypoints"]
+            bbox = best_ann["bbox"]
+
+            rgb = np.array(person_image)[:,:,:3]
+            alpha = np.array(person_image)[:, :, 3]
+
+            hsv = cv2.cvtColor(rgb, cv2.COLOR_BGR2HSV)
+
+            # Boost brightness (V channel)
+            hsv[:, :, 2] = cv2.normalize(hsv[:, :, 2], None, 80, 255, cv2.NORM_MINMAX)
+
+            # Back to BGR
+            rgb_fixed = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
+
+            person_image = np.dstack((rgb_fixed, alpha))
+
+            # Convert to binary mask (0 or 255)
+            mask = (alpha > 0).astype(np.uint8) * 255
+
+            # randomly choose background
+            bg = background_data[random.randint(0, len(background_data)-1)]
+            bg_image = cv2.imread(bg["image"])
+
+            # load mask for foreground (what to place in front of person)
+            bg_foreground_mask = cv2.imread(os.path.join(DIR, bg["foreground_mask"]), cv2.IMREAD_GRAYSCALE)
+            # load mask for placement of person on background
+            bg_placement_mask = cv2.imread(os.path.join(DIR, bg["placement_mask"]), cv2.IMREAD_GRAYSCALE)
+            # load size limits person can be
+            bg_min_height = bg["min_height"]
+            bg_max_height = bg["max_height"]
+            bg_max_height = bg_max_height - (bg_max_height - bg_min_height) // 1.5
+
+            start_time = time.time()
+            # create synthetic image, convert keypoints and bbox
+
+            new_image, new_bbox, new_kps = composite_background(person_image, mask, keypoints, bg_image, bg_placement_mask, bg_foreground_mask, [bg_min_height, bg_max_height], [-180, 180], 0.1, 0.01)
+
+            # create annotation entry for new dataset
+            fname = f"{conversion_count:06d}.jpg"
+            new_image_entry = {
+                "id": conversion_count,
+                "file_name": fname,
+                "width": new_image.shape[1],
+                "height": new_image.shape[0]
+            }
+            dataset["images"].append(new_image_entry)
+
+            new_annotation_entry = {
+                "id": conversion_count,
+                "image_id": conversion_count,
+                "category_id": 1,
+                "keypoints": list(map(float, new_kps)),
+                "num_keypoints": int(np.sum(np.array(new_kps)[2::3] > 0)),
+                "bbox": list(map(float, new_bbox)),
+                "area": float(new_bbox[2] * new_bbox[3]),
+                "iscrowd": 0
+            }
+            dataset["annotations"].append(new_annotation_entry)
+
+            cv2.imwrite(os.path.join(result_images, fname), new_image)
+            end_time = time.time()
+
+            print(f"Converted {path}")
+            print(f"Time taken : {(end_time - start_time):.2f} secs\n")
+            conversion_count += 1
+            images_converted += 1
+        except Exception as e:
+            print(f"ERROR : {e}")
+            print(f"Failed to convert Image\n")
+        
+        i += 1
+
+    with open(result_annotations, "w") as f:
+        json.dump(dataset, f, indent=4)
+
+    print(f"Images Converted : {images_converted}")
+
 if __name__ == "__main__":
 
-    with open(BACKGROUND_ANN, "r") as f:
-        background_data = json.load(f)
+    COCO_BUILD = False
 
-    test_image_dir = os.path.join(DIR, "data/coco/train2017/")
-    test_annotation_path = os.path.join(DIR, "data/coco/annotations/person_keypoints_train2017.json")
+    if COCO_BUILD:
 
-    start_time = time.time()
+        with open(BACKGROUND_ANN, "r") as f:
+            background_data = json.load(f)
 
-    build_dataset(test_image_dir, test_annotation_path, background_data, os.path.join(DIR, "data/segmentation_images/"))
+        test_image_dir = os.path.join(DIR, "data/coco/train2017/")
+        test_annotation_path = os.path.join(DIR, "data/coco/annotations/person_keypoints_train2017.json")
 
-    end_time = time.time()
+        start_time = time.time()
+
+        build_dataset_from_coco(test_image_dir, test_annotation_path, background_data, os.path.join(DIR, "data/segmentation_images/"))
+
+        end_time = time.time()
+
+    else:
+
+        with open(BACKGROUND_ANN, "r") as f:
+            background_data = json.load(f)
+
+        test_image_dir = os.path.join(DIR, "data/3d_data/3d_poses/images")
+        test_annotation_path = os.path.join(DIR, "data/3d_data/3d_poses/3d_person_annotations.json")
+
+        start_time = time.time()
+
+        build_dataset_from_3d(test_image_dir, test_annotation_path, background_data, os.path.join(DIR, "data/synthetic_3d"))
+
+        end_time = time.time()
 
     print(f"Total time taken : {(end_time - start_time):.2f} secs")
